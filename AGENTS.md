@@ -1,20 +1,24 @@
 # AGENTS.md — Codex Execution Governance
 
-This repository is developed through dependency-aware GitHub Issues and reviewed implementation PRs. This file defines **how Codex must operate in the repository**. It does not replace the product/safety requirements in `TODO.md` or the scope and acceptance criteria in the current GitHub Issue.
+This repository is developed through dependency-aware GitHub Issues and reviewed implementation PRs. This file defines **how Codex must operate in the repository**. It does not replace or weaken the product/safety requirements in `TODO.md` or the scope and acceptance criteria in the current GitHub Issue.
+
+This protocol applies only within the execution scope the user has authorized. Automatic continuation means continuing through that authorized milestone; it never means starting unrelated work merely because another Issue exists.
 
 ## 1. Authority and source of truth
 
 Before making any change, recover the current state from the repository and GitHub. Do not rely on prior chat history, cached assumptions, or an earlier local plan.
 
-Use this authority order:
+Different sources are authoritative for different questions:
 
-1. `AGENTS.md` — repository execution and review protocol.
-2. The current dependency-ready GitHub Issue — the implementation scope, dependencies, tests, and Definition of Done for the active unit of work.
-3. `TODO.md` — V1 product/safety contract, invariants, dependency graph, P0/V1 gates, and issue-level design authority.
-4. Current `main` code, tests, and executable behavior — the factual implementation baseline.
-5. `SKILL.md`, `README.md`, and `references/` — user-facing/operating documentation; these must not override stricter executable or safety contracts.
+- `AGENTS.md` governs **execution process**: state recovery, Issue selection, branching, review, merge, rollback, blocker handling, and continuation.
+- `TODO.md` governs the **V1 product and safety contract**: non-negotiable invariants, workstreams, dependency graph, P0/V1 gates, and release boundaries.
+- The current dependency-ready GitHub Issue governs the **active implementation unit**: concrete scope, dependencies, tests, compatibility requirements, fail-closed behavior, and Definition of Done. It must remain consistent with `TODO.md`.
+- Current `main` code and tests are the factual implementation baseline. Existing behavior is not automatically normative if it contradicts an explicit Issue/TODO contract.
+- `SKILL.md`, `README.md`, and `references/` are user-facing/operating documentation and must match, not override, the tested implementation and stricter safety contracts.
 
-If two authorities appear inconsistent, do not silently choose the convenient interpretation. First determine whether the conflict is only stale documentation or whether it changes an upstream safety/interface contract. Fix stale downstream documentation in scope when permitted. If satisfying the current Issue would require weakening or contradicting a higher-authority invariant or changing a frozen upstream contract, treat that as an upstream-contract problem and follow the blocker/escalation rules below.
+No process rule in `AGENTS.md` may be used to override a non-negotiable safety/product invariant in `TODO.md`. No Issue may silently weaken `TODO.md` merely because its body is more recent.
+
+If sources appear inconsistent, do not silently choose the convenient interpretation. Determine whether the problem is stale documentation, stale GitHub metadata, an implementation defect, or a real upstream contract conflict. Fix stale downstream material when that fix is in scope. If satisfying the current Issue requires weakening a TODO invariant or changing a frozen upstream interface/contract, handle it as an upstream-contract problem under sections 4 and 11 rather than adding a local workaround.
 
 ## 2. Repository-state recovery
 
@@ -27,7 +31,7 @@ At the start of every execution cycle and immediately after every merge:
 - verify there is no conflicting implementation PR already active for the same Issue;
 - treat merged code and current GitHub state as authoritative over remembered status.
 
-Do not continue an old branch blindly after `main` has materially changed.
+Do not continue an old branch blindly after `main` has materially changed. Before final review/merge, compare the PR against the then-current `main`. If `main` advanced in a way that can affect the PR, update the branch safely, rerun affected tests, and review the resulting actual diff again.
 
 ## 3. Selecting the next Issue
 
@@ -35,14 +39,16 @@ Work on **one implementation Issue at a time** unless the repository explicitly 
 
 A dependency-ready Issue is an open implementation Issue for which:
 
-- every stated hard dependency has been merged/closed successfully;
+- every stated hard dependency is demonstrably complete in current `main` and its GitHub Issue/PR state accurately reflects that completion, or stale metadata can be corrected without changing the implementation contract;
 - no prerequisite P0/V1 gate forbids starting or merging it;
 - there is no unresolved upstream contract defect that makes its acceptance criteria unsafe or contradictory;
 - there is no active superseding PR/Issue that makes the work obsolete.
 
-Choose the highest-priority dependency-ready Issue according to `TODO.md` and the Issue dependency graph, not simply the lowest numeric Issue number. P0 work precedes dependent P1 work; P2 research must not block V1 unless the governing contracts explicitly change.
+Do not treat an Issue being closed by itself as proof that its dependency was successfully implemented; verify the required result exists in `main`. Likewise, do not treat a stale open dependency Issue as an implementation blocker if the required reviewed code is already merged and the metadata can be corrected safely.
 
-If no Issue is dependency-ready, determine whether this is a true blocker, a dependency that still needs implementation, or stale GitHub metadata before stopping.
+Choose the highest-priority dependency-ready Issue according to `TODO.md` and the explicit Issue dependency graph, not simply the lowest numeric Issue number. P0 work precedes dependent P1 work; P2 research must not block V1 unless the governing contracts explicitly change. If several Issues of equal priority are ready and no explicit order is mandated, prefer the order in TODO's issue-slicing/recommended dependency sequence, then the work that unlocks the most downstream dependencies. Do not invent a hidden dependency merely to force numeric ordering.
+
+If no Issue is dependency-ready, determine whether this is a true blocker, an unfinished dependency, or stale GitHub metadata before stopping.
 
 ## 4. Issue scope discipline
 
@@ -55,25 +61,27 @@ The active Issue is the unit of implementation and review.
 - Do not broaden support matrices, accepted syntax, editable Word stories, or automatic-conversion eligibility without explicit fixtures, tests, and Issue authority.
 - Do not weaken fail-closed behavior to increase conversion success or to make tests pass.
 
-When a downstream task reveals a defect in a frozen upstream contract, repair the upstream contract first through the appropriate Issue/PR path rather than adding local compatibility hacks.
+When a downstream task reveals a defect in a frozen upstream contract, repair the upstream contract first through an explicit upstream Issue/PR change (or amend the governing Issue if that is the repository's established mechanism) and re-evaluate dependent work. Do not hide contract changes inside downstream implementation or add local compatibility hacks solely to avoid correcting the source contract.
 
 ## 5. Branch and PR protocol
 
 Never implement directly on `main`.
 
-For each Issue:
+For each implementation Issue:
 
 1. Start from current `main` and create a focused branch.
 2. Implement only the Issue scope plus necessary supporting changes.
-3. Create or update one implementation PR whose body links/closes the Issue and summarizes the actual scope, tests, compatibility impact, refusal behavior, and known limitations.
+3. Create or update one implementation PR whose body links the Issue and uses the repository's normal closing mechanism (for example `Closes #N`) when appropriate. Summarize actual scope, tests, compatibility impact, refusal behavior, and known limitations.
 4. Keep the PR open while implementation or review findings remain unresolved.
 5. Do not treat the PR description, commit messages, or green happy-path tests as proof of correctness.
 
 Do not create duplicate implementation PRs for the same Issue unless the existing PR is explicitly superseded. If superseding a PR, record that disposition clearly and avoid leaving ambiguous competing implementations.
 
+Governance/documentation maintenance that is intentionally outside an implementation Issue may use a focused PR without inventing a fake Issue, but it must still follow the actual-diff review and merge gates in this file.
+
 ## 6. Required implementation evidence
 
-Before considering an implementation complete, collect evidence appropriate to the Issue. At minimum:
+Before considering an implementation complete, collect evidence appropriate to the Issue. At minimum where applicable:
 
 - run the Issue-specific tests and fixtures;
 - run relevant repository regression tests;
@@ -86,15 +94,15 @@ Before considering an implementation complete, collect evidence appropriate to t
 
 If the repository does not yet contain a test harness and the active Issue requires executable proof, create the minimum in-scope test infrastructure necessary rather than replacing tests with prose assertions.
 
-A passing test suite is necessary but not sufficient for merge.
+Applicable passing tests are necessary but not sufficient for merge. For a pure governance/documentation PR where no executable test applies, state that explicitly and rely on contract comparison plus repeated actual-diff review rather than fabricating meaningless tests.
 
 ## 7. Actual-diff review loop
 
-Every implementation PR must be reviewed against the **actual PR diff** and current files, not only against the Issue description or intended design.
+Every PR must be reviewed against the **actual PR diff** and current files, not only against the Issue/PR description or intended design.
 
 Perform this loop until it converges:
 
-1. Re-read the active Issue and the relevant `TODO.md` contracts.
+1. Re-read the active Issue when one exists and the relevant `TODO.md` contracts.
 2. Review every changed file in the actual PR diff.
 3. Check for omitted acceptance criteria, unintended scope expansion, duplicated logic, unsafe fallback, stale assumptions, compatibility regressions, dependency mistakes, and new workflow risks.
 4. For formula/recovery/generation changes, check semantic correctness and support-matrix boundaries.
@@ -105,24 +113,29 @@ Perform this loop until it converges:
 9. Re-fetch and re-review the new actual diff after the modification; do not rely on the previous review.
 10. Repeat until no unresolved omission, contradiction, unsafe fallback, compatibility regression, or new process risk remains.
 
-Do not approve or merge a PR while any substantive review finding remains open.
+Conflict resolution, rebases/merges from `main`, generated-fixture changes, and review fixes can all change the effective diff. Treat them as substantive when they can affect behavior or contracts and repeat the relevant tests/review.
+
+Do not approve or merge a PR while any substantive review finding remains open. A Codex self-review does not satisfy an independent-review requirement if repository protection/rules require another reviewer.
 
 ## 8. Merge gate
 
 A PR may merge only when all of the following are true:
 
-- the active Issue's Definition of Done and acceptance criteria are satisfied;
+- the active Issue's Definition of Done and acceptance criteria are satisfied when the PR implements an Issue;
 - all required dependencies and applicable P0/V1 gates are satisfied;
-- required tests and negative/fail-closed cases pass;
+- required tests and negative/fail-closed cases pass where applicable;
 - the latest actual diff has been reviewed after the latest substantive change;
 - no unresolved semantic, style, OOXML, revision-preservation, package-integrity, compatibility, completeness, dependency, or workflow risk remains;
 - documentation changed by the PR does not claim support beyond tested behavior;
 - there is no known stale evidence or candidate/artifact hash mismatch relevant to delivery;
-- repository/GitHub merge requirements permit the merge.
+- the PR is still based on a compatible current `main` state;
+- repository/GitHub merge requirements, required status checks, and required reviews permit the merge.
 
-Merge only the reviewed head commit. If the PR head changes after final review, re-review the resulting actual diff before merge.
+Do not use an admin/bypass path to defeat branch protection, required checks, or required independent review unless the user explicitly authorizes that exact exception and it does not violate the repository's safety contract.
 
-After merge, return to current `main`, refresh GitHub state, and select the next dependency-ready Issue automatically. Do not wait for routine user confirmation between successfully completed Issues unless the user explicitly requested manual gates.
+Merge only the reviewed head commit. Use an expected-head check when the available tooling supports it. If the PR head changes after final review, re-fetch and re-review the resulting actual diff before merge.
+
+After merge, return to current `main`, refresh GitHub state, and — **only if the user's authorized execution scope includes further Issues/milestones** — select the next dependency-ready Issue automatically. Do not wait for routine user confirmation between successfully completed Issues when continuous execution was explicitly requested, but do not extend the user's requested scope on your own.
 
 ## 9. Snapshots, failed approaches, and rollback
 
@@ -134,6 +147,8 @@ Keep the branch recoverable throughout implementation.
 - Do not accumulate failed experiments in the final PR merely to preserve history; Git already preserves committed history.
 - Do not use destructive force-push/reset operations on shared or reviewed branches unless explicitly authorized and safe. Prefer new corrective commits or a clean replacement branch when necessary.
 - Never overwrite the immutable source DOCX or replace a previously validated final artifact with an unvalidated/partial artifact.
+
+Before merge, ensure the PR does not contain accidental local artifacts, temporary debugging output, unrelated generated files, or obsolete code left by failed approaches.
 
 A rollback must restore repository correctness, not merely make tests green.
 
@@ -164,7 +179,7 @@ True blockers include:
 - missing repository/GitHub permission required to create/update/merge the necessary branch or PR;
 - a required external capability that is genuinely unavailable and cannot be substituted without weakening the acceptance contract;
 - mathematically ambiguous source content whose intended semantics require author/user approval under the evidence policy;
-- an irreconcilable contradiction between the active Issue and a higher-authority non-negotiable invariant or frozen upstream interface;
+- an irreconcilable contradiction between the active Issue and a `TODO.md` non-negotiable invariant or frozen upstream interface;
 - a required native Microsoft Word validation gate that cannot be executed and for which no valid candidate-bound evidence can be obtained;
 - a safety/integrity condition where continuing would require modifying another author's revisions, silently changing protected OOXML/package content, guessing unsupported semantics, or misreporting partial output as complete.
 
@@ -185,7 +200,7 @@ Native Microsoft Word validation is a real acceptance gate where `TODO.md`/the a
 - If Word validation is unavailable, Codex may complete portable implementation and produce clearly labeled staging/review evidence, but it must not mark the relevant job, P0 gate, V1 gate, or final deliverable `COMPLETE`.
 - Do not fabricate screenshots, visual-inspection results, repair-prompt status, Word version information, or candidate-bound evidence.
 
-If the active Issue's Definition of Done requires native Word validation and that gate cannot be executed, this is a true blocker to merging/closing that Issue unless the governing contract explicitly permits a manual evidence handoff.
+If the active Issue's Definition of Done requires native Word validation and that gate cannot be executed, this is a true blocker to merging/closing that Issue unless the governing contract explicitly permits a manual evidence handoff. Any manual handoff evidence must still satisfy the same candidate identity/hash binding and validation requirements; "someone opened it" is not sufficient evidence by itself.
 
 ## 13. Safety invariants that automation may never bypass
 
@@ -209,9 +224,9 @@ Any code path, fallback, test shortcut, or manual procedure that bypasses these 
 
 ## 14. Completion and automatic continuation
 
-For each Issue, completion means the implementation is merged to `main`, the Issue is closed or otherwise accurately reflects completion, and there is no unresolved PR/process state left behind.
+For each implementation Issue, completion means the required implementation is merged to `main`, the Issue is closed or otherwise accurately reflects completion, and there is no unresolved superseded/competing PR state left behind.
 
-After a successful merge:
+After a successful merge, when the user's authorized scope includes continued execution:
 
 1. refresh current `main` and GitHub Issue/PR state;
 2. verify the just-merged change did not create a newly visible blocker for downstream contracts;
@@ -220,8 +235,8 @@ After a successful merge:
 
 Stop only when:
 
-- the requested milestone (for example P0 or V1) is actually complete;
-- no dependency-ready Issue remains because the remaining work is intentionally out of scope; or
+- the user-authorized milestone (for example P0 or V1) is actually complete;
+- no dependency-ready Issue remains because the remaining work is intentionally outside that authorized scope; or
 - a true blocker from section 11 is reached.
 
 When reporting completion, distinguish clearly between repository implementation completion, P0/V1 gate completion, and any document-level `COMPLETE` status. Never infer one from another.
