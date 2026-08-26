@@ -139,7 +139,8 @@ class FixtureCorpusTests(unittest.TestCase):
                 document = ET.fromstring(package["word/document.xml"])
                 self.assertEqual(len(document.findall(".//m:oMathPara/m:oMath/m:f", NS)), 1)
             else:
-                self.assertIn(source, story_text[part], row["id"])
+                expected_surface = row.get("anchor_before", "") + source
+                self.assertIn(expected_surface, story_text[part], row["id"])
 
     def test_revision_metadata_matches_machine_readable_expectations(self):
         document = ET.fromstring(build_fixture_package()["word/document.xml"])
