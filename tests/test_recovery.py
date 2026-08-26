@@ -82,6 +82,20 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual([">=", "+/-"], greater.canonical["operators"])
         self.assertEqual(["<=", "+/-"], lesser.canonical["operators"])
 
+        self.assertEqual({"kind": "unary_minus", "operand": "x"}, canonicalize_formula("-x"))
+        self.assertEqual(
+            {"kind": "subtraction", "left": "x", "right": "y"},
+            canonicalize_formula("x-y"),
+        )
+        self.assertEqual(
+            {"kind": "function_call", "name": "f", "argument": "x"},
+            canonicalize_formula("f(x)"),
+        )
+        self.assertEqual(
+            {"kind": "script", "base": {"kind": "styled", "style": "bold", "value": "x"}, "subscript": "i"},
+            canonicalize_formula(r"\mathbf{x}_i"),
+        )
+
     def test_context_gated_lost_escape_and_corruption(self):
         lost = recover_formula("frac{x}{y}", source_type="PARTIAL_LATEX")
         self.assertEqual("NEEDS_REVIEW", lost.status)

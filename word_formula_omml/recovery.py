@@ -22,6 +22,7 @@ from word_formula_omml.contract import (
     SourceType,
     load_manifest,
 )
+from word_formula_omml.inventory import classify_formula_text
 
 
 class RecoveryError(ContractError):
@@ -149,42 +150,6 @@ class RecoveryResult:
             "auto_eligible": self.auto_eligible,
         }
         return value
-
-
-def _infer_source_type(text: str) -> str:
-    if any(value in text for value in _CORRUPTION_REPLACEMENTS):
-        return SourceType.CORRUPTED_TEXT.value
-    if _LOST_ESCAPE_RE.search(text):
-        return SourceType.PARTIAL_LATEX.value
-    if "\\" in text:
-        return SourceType.RAW_LATEX.value if _balanced_braces(text) else SourceType.PARTIAL_LATEX.value
-    if any(character in text for character in _UNICODE_LATEX):
-        return SourceType.UNICODE_MATH.value
-    if re.search(r"\b[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+|\^\{?[^\s}]+\}?)+", text):
-        return SourceType.PLAIN_MATH.value
-    if re.search(r"(?:>=|<=|\+/-|\^)", text):
-        return SourceType.PLAIN_MATH.value
-    if re.fullmatch(r"\s*[\(\[]\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*[\)\]]\s*", text):
-        return SourceType.PLAIN_MATH.value
-    return SourceType.UNKNOWN_FORMULA.value
-
-
-def _balanced_braces(text: str) -> bool:
-    depth = 0
-    escaped = False
-    for character in text:
-        if escaped:
-            escaped = False
-            continue
-        if character == "\\":
-            escaped = True
-        elif character == "{":
-            depth += 1
-        elif character == "}":
-            depth -= 1
-            if depth < 0:
-                return False
-    return depth == 0
 
 
 def _has_math_signal(text: str) -> bool:
@@ -366,7 +331,7 @@ def recover_formula(
     if layout not in {"inline", "display"}:
         raise RecoveryError("layout must be 'inline' or 'display'")
     context = dict(context or {})
-    detected = source_type or _infer_source_type(raw_source)
+    detected = source_type or classify_formula_text(raw_source) or SourceType.UNKNOWN_FORMULA.value
     if detected not in {item.value for item in SourceType}:
         raise RecoveryError(f"unsupported source_type {detected!r}")
     explicit = _normalize_evidence(evidence)
@@ -469,6 +434,8 @@ def recover_formula(
             ambiguity = ["malformed_or_corrupted_source_requires_authoritative_evidence"]
         else:
             ambiguity = ["no_supported_recovery"]
+        if errors and any(index < len(explicit) for index in errors):
+            ambiguity.insert(0, "higher_ranked_evidence_unusable")
         return _result(
             raw_source=raw_source,
             source_type=detected,
