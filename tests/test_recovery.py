@@ -92,6 +92,10 @@ class RecoveryTests(unittest.TestCase):
             canonicalize_formula("f(x)"),
         )
         self.assertEqual(
+            canonicalize_formula(r"\sin(x)"),
+            canonicalize_formula(r"\sin x"),
+        )
+        self.assertEqual(
             {"kind": "script", "base": {"kind": "styled", "style": "bold", "value": "x"}, "subscript": "i"},
             canonicalize_formula(r"\mathbf{x}_i"),
         )
@@ -144,6 +148,13 @@ class RecoveryTests(unittest.TestCase):
         )
         self.assertEqual("APPROVED", same.status)
         self.assertEqual("AUTHORITATIVE", same.confidence)
+        instructed = recover_formula(
+            "x_i^2",
+            source_type="PLAIN_MATH",
+            evidence={"source": "user_instruction", "latex": "x_i^2"},
+        )
+        self.assertEqual("APPROVED", instructed.status)
+        self.assertEqual("AUTHORITATIVE", instructed.confidence)
 
     def test_prose_and_unsupported_syntax_do_not_enter_automatic_path(self):
         prose = recover_formula("alpha")

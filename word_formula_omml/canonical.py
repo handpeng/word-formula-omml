@@ -433,7 +433,8 @@ class _Parser:
     @staticmethod
     def _implicit(left: dict | str, right: dict | str) -> dict:
         if isinstance(left, dict) and left.get("kind") == "function":
-            return {"kind": "function_call", "name": left["name"], "argument": right}
+            argument = right["body"] if isinstance(right, dict) and right.get("kind") == "delimited" and right.get("left") == "(" else right
+            return {"kind": "function_call", "name": left["name"], "argument": argument}
         if isinstance(right, dict) and right.get("kind") == "delimited" and right.get("left") == "(":
             if isinstance(left, dict) and left.get("kind") == "identifier":
                 return {"kind": "function_call", "name": left["text"], "argument": right["body"]}

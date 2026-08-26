@@ -184,7 +184,7 @@ def _normalize_evidence(value: Any) -> list[_EvidenceCandidate]:
         if not isinstance(text, str) or not text.strip():
             raise RecoveryError(f"evidence[{index}] must contain non-empty latex/text")
         approved = item.get("approved", source in {"author_approved", "manifest", "user_instruction"}) is True
-        if source in {"author_approved", "manifest"} and not approved:
+        if source in {"author_approved", "manifest", "user_instruction"} and not approved:
             raise RecoveryError(f"evidence[{index}] author-approved evidence must set approved=true")
         result.append(_EvidenceCandidate(source, EVIDENCE_RANKS[source], text, approved, dict(item)))
     return result
