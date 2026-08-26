@@ -259,6 +259,32 @@ class AuditTests(unittest.TestCase):
             self.assertEqual("FAIL", report["story_content_drift"]["status"])
             self.assertTrue(any("unplanned story content drift" in error for error in report["errors"]))
 
+    def test_affected_paragraph_structure_drift_is_not_masked(self):
+        audit = load_audit()
+        for kind in ("redlined", "clean"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as name:
+                source, manifest, plan, staged, paths = self.make_case(Path(name))
+
+                def mutate(root):
+                    runs = root.findall(".//w:body/w:p/w:r", {"w": W})
+                    self.assertTrue(runs)
+                    rpr = runs[0].find("w:rPr", {"w": W})
+                    if rpr is None:
+                        rpr = ET.Element(q(W, "rPr"))
+                        runs[0].insert(0, rpr)
+                    ET.SubElement(rpr, q(W, "b"))
+
+                mutate_part(paths[kind], "word/document.xml", mutate)
+                report = audit.audit_artifact(paths[kind], baseline=source, manifest=manifest, application_plan=plan)
+                self.assertEqual("FAIL", report["status"])
+                self.assertEqual("FAIL", report["story_content_drift"]["status"])
+                self.assertTrue(
+                    any(
+                        "run fragment changed" in error or "unplanned story content drift" in error
+                        for error in report["errors"]
+                    )
+                )
+
     def test_protected_package_media_and_relationship_drift_fail_closed(self):
         audit = load_audit()
         with tempfile.TemporaryDirectory() as name:
@@ -573,6 +599,21 @@ class AuditTests(unittest.TestCase):
             report = audit.audit_artifact(source, baseline=source, expected_formulas=0)
             self.assertEqual("PASS", report["status"], report["errors"])
             self.assertEqual("NOT_EMITTED", report["evidence_state"])
+
+    def test_directory_entries_remain_compatible_with_structural_audit(self):
+        audit = load_audit()
+        with tempfile.TemporaryDirectory() as name:
+            source = Path(name) / "source.docx"
+            candidate = Path(name) / "candidate.docx"
+            write_fixture(source)
+            with zipfile.ZipFile(source) as archive:
+                parts = {part: archive.read(part) for part in archive.namelist()}
+            with zipfile.ZipFile(candidate, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("word/", b"")
+                for part, data in parts.items():
+                    archive.writestr(part, data)
+            report = audit.audit_artifact(candidate, baseline=source)
+            self.assertEqual("PASS", report["status"], report["errors"])
 
 
 if __name__ == "__main__":

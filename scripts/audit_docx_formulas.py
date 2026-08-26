@@ -50,6 +50,7 @@ W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 M = "http://schemas.openxmlformats.org/officeDocument/2006/math"
 R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 PKG_R = "http://schemas.openxmlformats.org/package/2006/relationships"
+XML = "http://www.w3.org/XML/1998/namespace"
 NS = {"w": W, "m": M, "r": R, "pr": PKG_R}
 QW = lambda name: f"{{{W}}}{name}"
 QM = lambda name: f"{{{M}}}{name}"
@@ -118,9 +119,10 @@ def _read_zip_parts(data: bytes, label: str) -> dict[str, bytes]:
             if len(names) != len(set(names)):
                 raise AuditError(f"{label} contains duplicate package part names")
             for name in names:
-                components = name.split("/")
+                validation_name = name[:-1] if name.endswith("/") else name
+                components = validation_name.split("/")
                 if (
-                    not name
+                    not validation_name
                     or "\\" in name
                     or name.startswith("/")
                     or any(component in {"", ".", ".."} for component in components)
@@ -663,20 +665,305 @@ def _package_diff(
     }, errors
 
 
-def _mask_story_blocks(root: ET.Element, affected: set[int]) -> ET.Element:
-    """Mask only planned occurrence blocks before comparing story content."""
+def _run_fragment(run: ET.Element, value: str) -> ET.Element:
+    """Build the exact ordinary-run fragment emitted by the applicator."""
 
-    masked = copy.deepcopy(root)
-    blocks = _blocks(masked)
-    for number in sorted(affected):
-        if number < 1 or number > len(blocks):
+    fragment = copy.deepcopy(run)
+    text_nodes = [child for child in fragment if child.tag == QW("t")]
+    if len(text_nodes) != 1 or any(child.tag not in {QW("rPr"), QW("t")} for child in fragment):
+        raise AuditError("planned clean replacement source run is not a plain text run")
+    text_node = text_nodes[0]
+    text_node.attrib.clear()
+    if value.startswith((" ", "\t")) or value.endswith((" ", "\t")):
+        text_node.set(f"{{{XML}}}space", "preserve")
+    text_node.text = value
+    return fragment
+
+
+def _child_path(root: ET.Element, node: ET.Element) -> tuple[int, ...]:
+    """Return a path based on child indexes for locating a node in a clone."""
+
+    parents = _parent_map(root)
+    indexes: list[int] = []
+    current = node
+    while current is not root:
+        parent = parents.get(id(current))
+        if parent is None:
+            raise AuditError("candidate mapping node is detached from its story root")
+        try:
+            indexes.append(list(parent).index(current))
+        except ValueError as error:
+            raise AuditError("candidate mapping node is detached from its parent") from error
+        current = parent
+    return tuple(reversed(indexes))
+
+
+def _node_at_path(root: ET.Element, path: Sequence[int]) -> ET.Element:
+    current = root
+    for index in path:
+        children = list(current)
+        if index < 0 or index >= len(children):
+            raise AuditError("candidate mapping path is no longer valid")
+        current = children[index]
+    return current
+
+
+def _baseline_run_binding(
+    baseline_root: ET.Element,
+    paragraph_number: int,
+    action: Any,
+) -> tuple[ET.Element, int, str] | None:
+    baseline_blocks = _blocks(baseline_root)
+    if (
+        paragraph_number < 1
+        or paragraph_number > len(baseline_blocks)
+        or baseline_blocks[paragraph_number - 1].tag != QW("p")
+    ):
+        return None
+    paragraph = baseline_blocks[paragraph_number - 1]
+    runs = paragraph.findall(".//w:r", NS)
+    run_index = action.run_index
+    if (
+        run_index is None
+        or run_index < 1
+        or run_index > len(runs)
+        or _parent_map(baseline_root).get(id(runs[run_index - 1])) is not paragraph
+    ):
+        return None
+    run = runs[run_index - 1]
+    text_nodes = [child for child in run if child.tag == QW("t")]
+    if len(text_nodes) != 1 or any(child.tag not in {QW("rPr"), QW("t")} for child in run):
+        return None
+    return run, list(paragraph).index(run), text_nodes[0].text or ""
+
+
+def _redlined_story_projection(
+    baseline_root: ET.Element,
+    rejected_root: ET.Element,
+    actions: Sequence[Any],
+) -> tuple[ET.Element, list[str]]:
+    """Restore planned rejected replacement fragments to the source run."""
+
+    errors: list[str] = []
+    rejected_blocks = _blocks(rejected_root)
+    placements: list[tuple[tuple[int, ...], int, int, str, ET.Element]] = []
+    by_paragraph: dict[int, list[tuple[int, int, int, Any, ET.Element, str]]] = collections.defaultdict(list)
+    for action in actions:
+        occurrence_id = action.occurrence_id
+        paragraph_number = action.paragraph or 0
+        binding = _baseline_run_binding(baseline_root, paragraph_number, action)
+        if binding is None:
+            errors.append(f"{occurrence_id}: redlined story projection source run binding is missing")
             continue
-        block = blocks[number - 1]
-        for child in list(block):
-            if block.tag == QW("p") and child.tag == QW("pPr"):
+        baseline_run, base_index, original_text = binding
+        start = action.run_start
+        end = action.run_end
+        if start is None or end is None or start < 0 or end <= start or end > len(original_text):
+            errors.append(f"{occurrence_id}: redlined story projection source range is invalid")
+            continue
+        by_paragraph[paragraph_number].append(
+            (base_index, int(start > 0), int(end < len(original_text)), action, baseline_run, original_text)
+        )
+
+    for paragraph_number, paragraph_actions in by_paragraph.items():
+        if (
+            paragraph_number < 1
+            or paragraph_number > len(rejected_blocks)
+            or rejected_blocks[paragraph_number - 1].tag != QW("p")
+        ):
+            for _base_index, _prefix, _suffix, action, _run, _text in paragraph_actions:
+                errors.append(f"{action.occurrence_id}: redlined story projection paragraph binding is missing")
+            continue
+        rejected_paragraph = rejected_blocks[paragraph_number - 1]
+        rejected_children = list(rejected_paragraph)
+        prior_delta = 0
+        for base_index, prefix, suffix, action, baseline_run, original_text in sorted(
+            paragraph_actions,
+            key=lambda item: (item[0], item[3].occurrence_id),
+        ):
+            source_index = base_index + prior_delta + prefix
+            start = source_index - prefix
+            end = source_index + suffix + 1
+            if start < 0 or end > len(rejected_children):
+                errors.append(f"{action.occurrence_id}: redlined story projection run fragment binding is missing")
+                prior_delta += prefix + suffix
                 continue
-            block.remove(child)
-    return masked
+            expected_fragments = []
+            if prefix:
+                expected_fragments.append(
+                    (source_index - 1, _run_fragment(baseline_run, original_text[: action.run_start]), "prefix")
+                )
+            expected_fragments.append(
+                (source_index, _run_fragment(baseline_run, original_text[action.run_start : action.run_end]), "source")
+            )
+            if suffix:
+                expected_fragments.append(
+                    (source_index + 1, _run_fragment(baseline_run, original_text[action.run_end :]), "suffix")
+                )
+            fragment_error = False
+            for index, expected, label in expected_fragments:
+                actual = rejected_children[index]
+                if _canonical_xml(actual) != _canonical_xml(expected):
+                    errors.append(f"{action.occurrence_id}: rejected candidate {label} run fragment changed")
+                    fragment_error = True
+            if not fragment_error:
+                source_path = _child_path(rejected_root, rejected_children[source_index])
+                placements.append((source_path, prefix, suffix, action.occurrence_id, baseline_run))
+            prior_delta += prefix + suffix
+
+    ranges: dict[tuple[int, ...], list[tuple[int, int, str]]] = collections.defaultdict(list)
+    for path, prefix, suffix, occurrence_id, _baseline_run in placements:
+        parent_path = path[:-1]
+        source_index = path[-1]
+        ranges[parent_path].append((source_index - prefix, source_index + suffix + 1, occurrence_id))
+    for parent_path, parent_ranges in ranges.items():
+        ordered = sorted(parent_ranges)
+        for left, right in zip(ordered, ordered[1:]):
+            if left[1] > right[0]:
+                errors.append(f"redlined story projection has overlapping planned replacements: {left[2]}, {right[2]}")
+
+    projected = copy.deepcopy(rejected_root)
+    for path, prefix, suffix, occurrence_id, baseline_run in sorted(placements, key=lambda item: item[0], reverse=True):
+        try:
+            parent = _node_at_path(projected, path[:-1])
+            source_index = path[-1]
+            start = source_index - prefix
+            end = source_index + suffix + 1
+            children = list(parent)
+            if start < 0 or end > len(children) or children[source_index].tag != QW("r"):
+                raise AuditError("redlined candidate replacement path is no longer valid")
+            for child in children[start:end]:
+                parent.remove(child)
+            parent.insert(start, copy.deepcopy(baseline_run))
+        except AuditError as error:
+            errors.append(f"{occurrence_id}: {error}")
+    return projected, errors
+
+
+def _clean_story_projection(
+    baseline_root: ET.Element,
+    candidate_root: ET.Element,
+    actions: Sequence[Any],
+    mapping: Mapping[str, ET.Element],
+) -> tuple[ET.Element, list[str]]:
+    """Restore only the planned clean replacements for a full story compare.
+
+    The candidate must retain the exact prefix/suffix run fragments that W5
+    derives from the source run.  Replacing the generated equation and those
+    checked fragments with the original source run then makes an exact XML
+    comparison possible without masking unrelated changes in the paragraph.
+    """
+
+    errors: list[str] = []
+    candidate_parents = _parent_map(candidate_root)
+    candidate_blocks = _blocks(candidate_root)
+    baseline_blocks = _blocks(baseline_root)
+    descriptors: list[tuple[tuple[int, ...], int, int, str, ET.Element]] = []
+    ranges: dict[tuple[int, ...], list[tuple[int, int, str]]] = collections.defaultdict(list)
+
+    for action in actions:
+        occurrence_id = action.occurrence_id
+        equation = mapping.get(occurrence_id)
+        if equation is None:
+            errors.append(f"{occurrence_id}: clean story projection has no mapped generated OMML")
+            continue
+        paragraph_number = action.paragraph or 0
+        if (
+            paragraph_number < 1
+            or paragraph_number > len(candidate_blocks)
+            or candidate_blocks[paragraph_number - 1].tag != QW("p")
+            or paragraph_number > len(baseline_blocks)
+            or baseline_blocks[paragraph_number - 1].tag != QW("p")
+        ):
+            errors.append(f"{occurrence_id}: clean story projection paragraph binding is missing")
+            continue
+        candidate_paragraph = candidate_blocks[paragraph_number - 1]
+        baseline_paragraph = baseline_blocks[paragraph_number - 1]
+        if candidate_parents.get(id(equation)) is not candidate_paragraph:
+            errors.append(f"{occurrence_id}: generated OMML is not a direct child of its planned paragraph")
+            continue
+        try:
+            equation_index = list(candidate_paragraph).index(equation)
+        except ValueError:
+            errors.append(f"{occurrence_id}: generated OMML is detached from its planned paragraph")
+            continue
+        run_index = action.run_index
+        baseline_runs = baseline_paragraph.findall(".//w:r", NS)
+        if (
+            run_index is None
+            or run_index < 1
+            or run_index > len(baseline_runs)
+            or _parent_map(baseline_root).get(id(baseline_runs[run_index - 1])) is not baseline_paragraph
+        ):
+            errors.append(f"{occurrence_id}: clean story projection source run binding is missing")
+            continue
+        baseline_run = baseline_runs[run_index - 1]
+        source_nodes = [child for child in baseline_run if child.tag == QW("t")]
+        if len(source_nodes) != 1 or any(child.tag not in {QW("rPr"), QW("t")} for child in baseline_run):
+            errors.append(f"{occurrence_id}: clean story projection source run is not plain text")
+            continue
+        original_text = source_nodes[0].text or ""
+        start = action.run_start
+        end = action.run_end
+        if (
+            start is None
+            or end is None
+            or start < 0
+            or end <= start
+            or end > len(original_text)
+        ):
+            errors.append(f"{occurrence_id}: clean story projection source range is invalid")
+            continue
+        prefix = int(start > 0)
+        suffix = int(end < len(original_text))
+        candidate_children = list(candidate_paragraph)
+        if equation_index < prefix or equation_index + suffix >= len(candidate_children):
+            errors.append(f"{occurrence_id}: clean story projection run fragment binding is missing")
+            continue
+        expected_fragments = []
+        if prefix:
+            expected_fragments.append((equation_index - 1, _run_fragment(baseline_run, original_text[:start]), "prefix"))
+        if suffix:
+            expected_fragments.append((equation_index + 1, _run_fragment(baseline_run, original_text[end:]), "suffix"))
+        fragment_error = False
+        for index, expected, label in expected_fragments:
+            actual = candidate_children[index]
+            if _canonical_xml(actual) != _canonical_xml(expected):
+                errors.append(f"{occurrence_id}: clean candidate {label} run fragment changed")
+                fragment_error = True
+        if fragment_error:
+            continue
+        path = _child_path(candidate_root, equation)
+        parent_path = path[:-1]
+        ranges[parent_path].append((equation_index - prefix, equation_index + suffix + 1, occurrence_id))
+        descriptors.append((path, prefix, suffix, occurrence_id, baseline_run))
+
+    for parent_path, parent_ranges in ranges.items():
+        ordered = sorted(parent_ranges)
+        for left, right in zip(ordered, ordered[1:]):
+            if left[1] > right[0]:
+                errors.append(f"clean story projection has overlapping planned replacements: {left[2]}, {right[2]}")
+
+    projected = copy.deepcopy(candidate_root)
+    for path, prefix, suffix, occurrence_id, baseline_run in sorted(
+        descriptors,
+        key=lambda item: item[0],
+        reverse=True,
+    ):
+        try:
+            parent = _node_at_path(projected, path[:-1])
+            equation_index = path[-1]
+            start = equation_index - prefix
+            end = equation_index + suffix + 1
+            children = list(parent)
+            if start < 0 or end > len(children) or children[equation_index].tag != QM("oMath"):
+                raise AuditError("clean candidate replacement path is no longer valid")
+            for child in children[start:end]:
+                parent.remove(child)
+            parent.insert(start, copy.deepcopy(baseline_run))
+        except AuditError as error:
+            errors.append(f"{occurrence_id}: {error}")
+    return projected, errors
 
 
 def _audit_story_content(
@@ -684,6 +971,7 @@ def _audit_story_content(
     candidate: Mapping[str, bytes],
     plan: ApplicationPlan,
     kind: str,
+    mapping: Mapping[str, ET.Element] | None = None,
     baseline_roots: Mapping[str, ET.Element] | None = None,
     candidate_roots: Mapping[str, ET.Element] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
@@ -704,11 +992,6 @@ def _audit_story_content(
 
     base_stories = _story_roots(baseline, baseline_roots)
     candidate_stories = _story_roots(normalized_candidate, candidate_roots if normalized_candidate is candidate else None)
-    affected: dict[str, set[int]] = collections.defaultdict(set)
-    for action in plan.actions:
-        if action.decision == "APPLY" and action.package_part and action.paragraph is not None:
-            affected[action.package_part].add(action.paragraph)
-
     records: list[dict[str, Any]] = []
     for part in sorted(set(base_stories) | set(candidate_stories)):
         base_root = base_stories.get(part)
@@ -722,22 +1005,54 @@ def _audit_story_content(
             "part": part,
             "baseline_blocks": len(base_blocks),
             "candidate_blocks": len(candidate_blocks),
-            "affected_blocks": sorted(affected.get(part, set())),
         }
         if len(base_blocks) != len(candidate_blocks):
             record["status"] = "FAIL"
             errors.append(f"{part}: story block count changed {len(base_blocks)} -> {len(candidate_blocks)}")
-        else:
-            invalid = [number for number in affected.get(part, set()) if number < 1 or number > len(base_blocks)]
-            if invalid:
+        elif kind == "redlined":
+            part_actions = [
+                action
+                for action in plan.actions
+                if action.decision == "APPLY" and (action.package_part or "word/document.xml") == part
+            ]
+            projected, projection_errors = _redlined_story_projection(base_root, candidate_root, part_actions)
+            errors.extend(projection_errors)
+            record["status"] = "PASS" if not projection_errors and _canonical_xml(base_root) == _canonical_xml(projected) else "FAIL"
+            if record["status"] != "PASS" and not projection_errors:
+                errors.append(f"{part}: unplanned story content drift detected")
+        elif kind == "clean":
+            part_actions = [
+                action
+                for action in plan.actions
+                if action.decision == "APPLY" and (action.package_part or "word/document.xml") == part
+            ]
+            if mapping is None:
                 record["status"] = "FAIL"
-                errors.append(f"{part}: planned story block binding is out of range: {invalid}")
+                errors.append(f"{part}: clean story projection has no generated-OMML mapping")
             else:
-                base_masked = _mask_story_blocks(base_root, affected.get(part, set()))
-                candidate_masked = _mask_story_blocks(candidate_root, affected.get(part, set()))
-                record["status"] = "PASS" if _canonical_xml(base_masked) == _canonical_xml(candidate_masked) else "FAIL"
-                if record["status"] != "PASS":
+                projected, projection_errors = _clean_story_projection(
+                    base_root,
+                    candidate_root,
+                    part_actions,
+                    mapping,
+                )
+                errors.extend(projection_errors)
+                record["status"] = "PASS" if not projection_errors and _canonical_xml(base_root) == _canonical_xml(projected) else "FAIL"
+                if record["status"] != "PASS" and not projection_errors:
                     errors.append(f"{part}: unplanned story content drift detected")
+        else:
+            record["status"] = "PASS" if _canonical_xml(base_root) == _canonical_xml(candidate_root) else "FAIL"
+            if record["status"] != "PASS":
+                errors.append(f"{part}: unplanned story content drift detected")
+        record["affected_blocks"] = sorted(
+            {
+                action.paragraph
+                for action in plan.actions
+                if action.decision == "APPLY"
+                and (action.package_part or "word/document.xml") == part
+                and action.paragraph is not None
+            }
+        )
         records.append(record)
     if set(base_stories) != set(candidate_stories):
         errors.append("story parts changed between baseline and candidate")
@@ -1751,16 +2066,6 @@ def audit_artifact(
             }
             errors.extend(kind_errors)
             if baseline_package is not None:
-                story_drift, story_errors = _audit_story_content(
-                    baseline_package,
-                    package,
-                    plan_obj,
-                    kind,
-                    baseline_roots,
-                    candidate_roots,
-                )
-                report["story_content_drift"] = story_drift
-                errors.extend(story_errors)
                 settings_drift, settings_errors = _audit_settings_drift(baseline_package, package, plan_obj)
                 report["settings_drift"] = settings_drift
                 errors.extend(settings_errors)
@@ -1777,6 +2082,18 @@ def audit_artifact(
             report["occurrence_accounting"] = accounting
             report["omml_delta"] = delta_details
             errors.extend(occurrence_errors)
+            if baseline_package is not None:
+                story_drift, story_errors = _audit_story_content(
+                    baseline_package,
+                    package,
+                    plan_obj,
+                    kind,
+                    mapping=mapping,
+                    baseline_roots=baseline_roots,
+                    candidate_roots=candidate_roots,
+                )
+                report["story_content_drift"] = story_drift
+                errors.extend(story_errors)
             if baseline_package is not None:
                 expected_counts = _part_formula_counts(baseline_package, baseline_roots)
                 for action in plan_obj.actions:
