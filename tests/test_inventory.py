@@ -233,6 +233,30 @@ class InventoryTests(unittest.TestCase):
             )
             self.assertTrue(row["extensions"]["inventory"]["crosses_omitted_revision"])
 
+    def test_candidate_crossing_non_text_run_boundary_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package = build_fixture_package()
+            document = ET.fromstring(package["word/document.xml"])
+            body = document.find(f"{{{W}}}body")
+            self.assertIsNotNone(body)
+            paragraph = ET.SubElement(body, f"{{{W}}}p")
+            run = ET.SubElement(paragraph, f"{{{W}}}r")
+            first_text = ET.SubElement(run, f"{{{W}}}t")
+            first_text.text = "Inline x_"
+            ET.SubElement(run, f"{{{W}}}tab")
+            last_text = ET.SubElement(run, f"{{{W}}}t")
+            last_text.text = "i"
+            package["word/document.xml"] = ET.tostring(document, encoding="UTF-8", xml_declaration=True)
+
+            source = Path(directory) / "cross-boundary.docx"
+            write_package(source, package)
+            manifest = inventory_docx(source)
+            row = self.find_row(manifest, "x_i", anchor_before="Inline ")
+
+            self.assertEqual("NEEDS_SPECIAL_HANDLER", row["status"])
+            self.assertTrue(row["extensions"]["inventory"]["crosses_non_text_boundary"])
+            self.assertEqual(1, len(row["extensions"]["inventory"]["boundary_node_paths"]))
+
     def test_repeated_occurrences_preserve_style_and_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             manifest = inventory_docx(self.make_source(directory))

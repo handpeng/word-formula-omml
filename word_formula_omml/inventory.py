@@ -62,6 +62,23 @@ PROTECTED_KEYS = (
     "embedded_object",
     "comment_range",
 )
+NON_TEXT_BOUNDARIES = frozenset(
+    {
+        "br",
+        "cr",
+        "drawing",
+        "endnoteReference",
+        "fldChar",
+        "footnoteReference",
+        "noBreakHyphen",
+        "object",
+        "pict",
+        "ptab",
+        "softHyphen",
+        "sym",
+        "tab",
+    }
+)
 
 _LATEX_COMMAND = re.compile(r"\\[A-Za-z]+")
 _LOST_ESCAPE = re.compile(r"\b(?:frac|sqrt|mathcal|mathrm|text)\s*\{")
@@ -557,6 +574,22 @@ def _omitted_revision_nodes(
     return tuple(result)
 
 
+def _non_text_boundary_nodes(
+    surface: TextSurface,
+    index: dict[int, NodeInfo],
+    start: int,
+    end: int,
+) -> tuple[ET.Element, ...]:
+    result = []
+    for node_id, span in surface.events.items():
+        node = index[node_id].element
+        if _namespace(node.tag) == W and _local(node.tag) in NON_TEXT_BOUNDARIES:
+            position = span[0]
+            if start < position < end:
+                result.append(node)
+    return tuple(result)
+
+
 def _revision_metadata(
     refs: Iterable[CharRef],
     *,
@@ -693,16 +726,25 @@ def _status_for(
     inside_revision: bool,
     protected: dict[str, bool],
     run_count: int,
+    structural_boundary: bool,
 ) -> tuple[str, str]:
     if source_type == SourceType.EXISTING_OMML.value:
         return OccurrenceStatus.PRESERVED.value, "native_omml_preserve"
     if source_type in {SourceType.PARTIAL_LATEX.value, SourceType.CORRUPTED_TEXT.value}:
         return OccurrenceStatus.NEEDS_REVIEW.value, "classifier_requires_review"
-    if deleted or inside_revision or run_count > 1 or any(protected.values()) or source_type in {
-        SourceType.EQ_FIELD.value,
-        SourceType.EMBEDDED_EQUATION_OBJECT.value,
-        SourceType.UNKNOWN_FORMULA.value,
-    }:
+    if (
+        deleted
+        or inside_revision
+        or run_count > 1
+        or structural_boundary
+        or any(protected.values())
+        or source_type
+        in {
+            SourceType.EQ_FIELD.value,
+            SourceType.EMBEDDED_EQUATION_OBJECT.value,
+            SourceType.UNKNOWN_FORMULA.value,
+        }
+    ):
         return OccurrenceStatus.NEEDS_SPECIAL_HANDLER.value, "structural_handler_required"
     return OccurrenceStatus.DISCOVERED.value, "candidate_detection_only"
 
@@ -730,6 +772,7 @@ def _text_candidate(
         match.end,
         deleted=deleted,
     )
+    non_text_boundaries = _non_text_boundary_nodes(surface, index, match.start, match.end)
     inside_revision, ancestry = _revision_metadata(refs, omitted_nodes=omitted_nodes)
     boundaries, run_index, run_start, run_end = _run_boundaries(refs, _run_indices(paragraph))
     relationship_ids = _relationship_ids(ref for ref in refs for ref in ref.ancestors)
@@ -749,6 +792,7 @@ def _text_candidate(
         inside_revision=inside_revision,
         protected=protected,
         run_count=boundaries["run_count"],
+        structural_boundary=bool(non_text_boundaries),
     )
     anchor_before = surface.text[max(0, match.start - 32) : match.start]
     anchor_after = surface.text[match.end : match.end + 32]
@@ -786,6 +830,8 @@ def _text_candidate(
                 "node_paths": sorted({index[id(ref.node)].path for ref in refs}),
                 "run_paths": sorted({index[id(ref.run)].path for ref in refs if ref.run is not None}),
                 "crosses_omitted_revision": bool(omitted_nodes),
+                "crosses_non_text_boundary": bool(non_text_boundaries),
+                "boundary_node_paths": sorted({index[id(node)].path for node in non_text_boundaries}),
                 "relationship_ids": relationship_ids,
             }
         },
@@ -812,6 +858,12 @@ def _omml_candidate(
     protected = _protected_from_ancestors(info.ancestors)
     inside_revision, ancestry = _revision_metadata((), extra_nodes=info.ancestors)
     relationship_ids = _relationship_ids(info.ancestors)
+    adjacent = {
+        "adjacent_bookmark": protected["bookmark"],
+        "adjacent_field": protected["field"],
+        "adjacent_hyperlink": protected["hyperlink"],
+        "adjacent_drawing": protected["drawing"],
+    }
     row = {
         "latex": source,
         "layout": layout,
@@ -828,10 +880,7 @@ def _omml_candidate(
         "protected_containers": protected,
         "inside_existing_revision": inside_revision,
         "revision_ancestry": ancestry,
-        "adjacent_bookmark": False,
-        "adjacent_field": False,
-        "adjacent_hyperlink": False,
-        "adjacent_drawing": False,
+        **adjacent,
         "extensions": {
             "inventory": {
                 "source_view": "omml",
@@ -945,6 +994,12 @@ def _object_candidate(
     relationship_ids = _relationship_ids(object_node.iter())
     protected = _protected_from_ancestors(index[id(object_node)].ancestors)
     inside_revision, ancestry = _revision_metadata((), extra_nodes=index[id(object_node)].ancestors)
+    adjacent = {
+        "adjacent_bookmark": protected["bookmark"],
+        "adjacent_field": protected["field"],
+        "adjacent_hyperlink": protected["hyperlink"],
+        "adjacent_drawing": protected["drawing"],
+    }
     row = {
         "latex": source,
         "layout": _layout(paragraph),
@@ -962,10 +1017,7 @@ def _object_candidate(
         "status": OccurrenceStatus.NEEDS_SPECIAL_HANDLER.value,
         "inside_existing_revision": inside_revision,
         "revision_ancestry": ancestry,
-        "adjacent_bookmark": False,
-        "adjacent_field": False,
-        "adjacent_hyperlink": False,
-        "adjacent_drawing": False,
+        **adjacent,
         "protected_containers": protected,
         "extensions": {
             "inventory": {
