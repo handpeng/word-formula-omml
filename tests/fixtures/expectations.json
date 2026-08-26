@@ -24,6 +24,7 @@
       "bookmarks": 1,
       "hyperlinks": 1,
       "fields": 2,
+      "comment_ranges": 1,
       "content_controls": 1,
       "omath": 2,
       "omath_para": 1,
@@ -57,6 +58,7 @@
       "eq-field": {"class": "EQ_FIELD", "result": "needs_special_handler", "reason": "legacy_field_requires_parser"},
       "drawing-formula": {"class": "PLAIN_MATH", "result": "needs_special_handler", "reason": "drawing_adjacency"},
       "content-control-formula": {"class": "PLAIN_MATH", "result": "needs_special_handler", "reason": "content_control_intersection"},
+      "comment-range-formula": {"class": "PLAIN_MATH", "result": "needs_special_handler", "reason": "comment_range_intersection"},
       "existing-omml": {"class": "EXISTING_OMML", "result": "preserve", "reason": "native_equation"},
       "display-omml": {"class": "EXISTING_OMML", "result": "preserve", "reason": "native_display_equation"},
       "embedded-object": {"class": "EMBEDDED_EQUATION_OBJECT", "result": "needs_special_handler", "reason": "legacy_object_preserve"},
@@ -86,7 +88,7 @@
     "batch_cases": {
       "mixed-safe-and-refused": {
         "safe": ["raw-latex", "plain-scripts", "plain-operators", "unicode-operators", "repeat-black", "repeat-blue", "repeat-red", "interval"],
-        "refused": ["partial-latex", "lost-escape", "corrupted-inequality", "multi-run", "other-author-insertion", "table-formula", "bookmark-formula", "hyperlink-formula", "field-formula", "eq-field", "drawing-formula", "content-control-formula", "embedded-object"],
+        "refused": ["partial-latex", "lost-escape", "corrupted-inequality", "multi-run", "other-author-insertion", "table-formula", "bookmark-formula", "hyperlink-formula", "field-formula", "eq-field", "drawing-formula", "content-control-formula", "comment-range-formula", "embedded-object"],
         "expected_delivery_status": "PARTIAL_REVIEW_OUTPUT"
       }
     },
@@ -135,6 +137,7 @@
     {"id": "eq-field", "source": "x2", "latex": "x^2", "layout": "inline", "source_type": "EQ_FIELD", "status": "NEEDS_SPECIAL_HANDLER", "expected_matches": 1, "paragraph": 18, "anchor_before": "EQ field: ", "adjacent_field": true},
     {"id": "drawing-formula", "source": "q_i", "latex": "q_i", "layout": "inline", "source_type": "PLAIN_MATH", "status": "NEEDS_SPECIAL_HANDLER", "expected_matches": 1, "paragraph": 19, "anchor_before": "Drawing-adjacent ", "adjacent_drawing": true},
     {"id": "content-control-formula", "source": "r_i", "latex": "r_i", "layout": "inline", "source_type": "PLAIN_MATH", "status": "NEEDS_SPECIAL_HANDLER", "expected_matches": 1, "paragraph": 20, "anchor_before": "Content-control ", "protected_containers": {"content_control": true}},
+    {"id": "comment-range-formula", "source": "c_i", "latex": "c_i", "layout": "inline", "source_type": "PLAIN_MATH", "status": "NEEDS_SPECIAL_HANDLER", "expected_matches": 1, "paragraph": 27, "anchor_before": "Comment story reference ", "protected_containers": {"comment_range": true}},
     {"id": "existing-omml", "source": "x", "latex": "x", "layout": "inline", "source_type": "EXISTING_OMML", "status": "PRESERVED", "expected_matches": 1, "paragraph": 21},
     {"id": "display-omml", "source": "\\frac{a}{b}", "latex": "\\frac{a}{b}", "layout": "display", "source_type": "EXISTING_OMML", "status": "PRESERVED", "expected_matches": 1, "paragraph": 22},
     {"id": "embedded-object", "source": "Embedded legacy equation object", "latex": "legacy", "layout": "inline", "source_type": "EMBEDDED_EQUATION_OBJECT", "status": "NEEDS_SPECIAL_HANDLER", "expected_matches": 1, "paragraph": 22, "protected_containers": {"embedded_object": true}},

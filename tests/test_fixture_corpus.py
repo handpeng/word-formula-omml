@@ -61,6 +61,7 @@ class FixtureCorpusTests(unittest.TestCase):
         self.assertEqual(len(document.findall(".//w:bookmarkStart", NS)), expectations["bookmarks"])
         self.assertEqual(len(document.findall(".//w:hyperlink", NS)), expectations["hyperlinks"])
         self.assertEqual(len(document.findall(".//w:fldSimple", NS)), expectations["fields"])
+        self.assertEqual(len(document.findall(".//w:commentRangeStart", NS)), expectations["comment_ranges"])
         self.assertEqual(len(document.findall(".//w:sdt", NS)), expectations["content_controls"])
         self.assertEqual(len(document.findall(".//m:oMath", NS)), expectations["omath"])
         self.assertEqual(len(document.findall(".//m:oMathPara", NS)), expectations["omath_para"])

@@ -351,7 +351,7 @@ def document_xml() -> bytes:
     append(body, text_paragraph("Semantic trap A: x_i^2"))
     append(body, text_paragraph(r"Semantic trap B: x_{i^2}"))
     append(body, text_paragraph(r"\frac{a}{b}", style="DisplayFormula", ppr_change=True))
-    comment_paragraph = paragraph(run("Comment story reference"))
+    comment_paragraph = paragraph(run("Comment story reference "))
     comment_range(comment_paragraph, "0", run("c_i"))
     append(body, comment_paragraph)
     append(body, text_paragraph("Interval: (0, 1]"))
