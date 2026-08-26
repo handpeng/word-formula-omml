@@ -80,15 +80,15 @@ def run(
     properties = element(W, "rPr")
     if style:
         append(properties, element(W, "rStyle", **{qn(W, "val"): style}))
+    if bold:
+        append(properties, element(W, "b"))
+    if italic:
+        append(properties, element(W, "i"))
     if color:
         append(properties, element(W, "color", **{qn(W, "val"): color}))
     if size:
         append(properties, element(W, "sz", **{qn(W, "val"): str(size)}))
         append(properties, element(W, "szCs", **{qn(W, "val"): str(size)}))
-    if bold:
-        append(properties, element(W, "b"))
-    if italic:
-        append(properties, element(W, "i"))
     if rpr_change:
         append(
             properties,
@@ -169,7 +169,7 @@ def comment_range(paragraph_value: ET.Element, comment_id: str, child: ET.Elemen
     paragraph_value.append(element(W, "commentRangeStart", **{qn(W, "id"): comment_id}))
     paragraph_value.append(child)
     paragraph_value.append(element(W, "commentRangeEnd", **{qn(W, "id"): comment_id}))
-    reference = run("")
+    reference = element(W, "r")
     append(reference, element(W, "commentReference", **{qn(W, "id"): comment_id}))
     paragraph_value.append(reference)
 
@@ -260,7 +260,7 @@ def document_xml() -> bytes:
     root = element(W, "document")
     body = append(root, element(W, "body"))
     title = text_paragraph("Synthetic adversarial formula corpus")
-    note_references = run("")
+    note_references = element(W, "r")
     append(note_references, element(W, "footnoteReference", **{qn(W, "id"): "1"}))
     append(note_references, element(W, "endnoteReference", **{qn(W, "id"): "1"}))
     title.append(note_references)
@@ -288,6 +288,9 @@ def document_xml() -> bytes:
     table_properties = element(W, "tblPr")
     append(table_properties, element(W, "tblStyle", **{qn(W, "val"): "TableGrid"}))
     append(table, table_properties)
+    table_grid = element(W, "tblGrid")
+    append(table_grid, element(W, "gridCol", **{qn(W, "w"): "9000"}))
+    append(table, table_grid)
     row_value = element(W, "tr")
     cell = element(W, "tc")
     append(cell, paragraph(run(r"Table: \alpha + \beta")))
@@ -399,7 +402,6 @@ def styles_xml() -> bytes:
 def settings_xml() -> bytes:
     root = element(W, "settings")
     append(root, element(W, "trackRevisions"))
-    append(root, element(W, "compat", **{qn(W, "val"): "15"}))
     return xml_bytes(root)
 
 
@@ -440,10 +442,6 @@ def core_properties_xml() -> bytes:
 
 def app_properties_xml() -> bytes:
     return b"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Properties xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/extended-properties\"><Application>word-formula-omml fixture builder</Application></Properties>"
-
-
-def theme_xml() -> bytes:
-    return b"<?xml version=\"1.0\" encoding=\"UTF-8\"?><a:theme xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" name=\"Synthetic\"><a:themeElements><a:clrScheme name=\"Synthetic\"><a:dk1><a:sysClr val=\"windowText\" lastClr=\"000000\"/></a:dk1><a:lt1><a:sysClr val=\"window\" lastClr=\"FFFFFF\"/></a:lt1><a:dk2><a:srgbClr val=\"1F1F1F\"/></a:dk2><a:lt2><a:srgbClr val=\"F2F2F2\"/></a:lt2><a:accent1><a:srgbClr val=\"4472C4\"/></a:accent1><a:accent2><a:srgbClr val=\"ED7D31\"/></a:accent2><a:accent3><a:srgbClr val=\"A5A5A5\"/></a:accent3><a:accent4><a:srgbClr val=\"FFC000\"/></a:accent4><a:accent5><a:srgbClr val=\"5B9BD5\"/></a:accent5><a:accent6><a:srgbClr val=\"70AD47\"/></a:accent6><a:hlink><a:srgbClr val=\"0563C1\"/></a:hlink><a:folHlink><a:srgbClr val=\"954F72\"/></a:folHlink></a:clrScheme><a:fontScheme name=\"Synthetic\"><a:majorFont/><a:minorFont/></a:fontScheme><a:fmtScheme name=\"Synthetic\"><a:fillStyleLst/><a:lnStyleLst/><a:effectStyleLst/><a:bgFillStyleLst/></a:fmtScheme></a:themeElements></a:theme>"
 
 
 def root_rels() -> bytes:
@@ -506,7 +504,6 @@ def build_fixture_package() -> dict[str, bytes]:
         "word/media/image1.png": png_bytes(),
         "word/settings.xml": settings_xml(),
         "word/styles.xml": styles_xml(),
-        "word/theme/theme1.xml": theme_xml(),
     }
 
 
