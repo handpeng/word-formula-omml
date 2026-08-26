@@ -47,6 +47,21 @@ from .semantic import (
     semantic_fingerprint,
     validate_omml_semantics,
 )
+from .style import (
+    ALIGNMENTS,
+    HIGHLIGHTS,
+    MATH_FONT,
+    MATH_STYLES,
+    UNDERLINES,
+    StyleError,
+    StyleResolution,
+    StyleStatus,
+    resolve_manifest_styles,
+    resolve_style,
+    snapshot_paragraph_style,
+    snapshot_run_style,
+    style_catalog,
+)
 
 __all__ = [
     "ArtifactState",
@@ -94,4 +109,17 @@ __all__ = [
     "parse_omml_semantics",
     "semantic_fingerprint",
     "validate_omml_semantics",
+    "ALIGNMENTS",
+    "HIGHLIGHTS",
+    "MATH_FONT",
+    "MATH_STYLES",
+    "UNDERLINES",
+    "StyleError",
+    "StyleResolution",
+    "StyleStatus",
+    "resolve_manifest_styles",
+    "resolve_style",
+    "snapshot_paragraph_style",
+    "snapshot_run_style",
+    "style_catalog",
 ]
