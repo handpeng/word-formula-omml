@@ -223,6 +223,13 @@ class SemanticBridgeTests(unittest.TestCase):
             self.assertEqual(SemanticStatus.UNSUPPORTED.value, result.status, source)
             self.assertIn("raw_structural_character:(", result.reason, source)
 
+        result = compare_omml_to_canonical(
+            omath(math_run("(0,1]", style="b")),
+            canonicalize_formula("(0,1]"),
+        )
+        self.assertEqual(SemanticStatus.UNSUPPORTED.value, result.status)
+        self.assertIn("raw_structural_character:(", result.reason)
+
     def test_mutated_semantics_are_rejected(self):
         expected_script = canonicalize_formula("x_i^2")
         grouped = script(math_run("x"), sub=script(math_run("i"), sup=math_run("2")))
