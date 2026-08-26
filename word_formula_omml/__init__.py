@@ -33,6 +33,20 @@ from .recovery import (
     recover_manifest,
     recovery_fingerprint,
 )
+from .semantic import (
+    SEMANTIC_SUPPORT_MATRIX,
+    SUPPORTED_CANONICAL_KINDS,
+    SemanticError,
+    SemanticResult,
+    SemanticStatus,
+    UnsupportedOMML,
+    compare_omml,
+    compare_omml_to_canonical,
+    parse_omml,
+    parse_omml_semantics,
+    semantic_fingerprint,
+    validate_omml_semantics,
+)
 
 __all__ = [
     "ArtifactState",
@@ -68,4 +82,16 @@ __all__ = [
     "recover_formula",
     "recover_manifest",
     "recovery_fingerprint",
+    "SEMANTIC_SUPPORT_MATRIX",
+    "SUPPORTED_CANONICAL_KINDS",
+    "SemanticError",
+    "SemanticResult",
+    "SemanticStatus",
+    "UnsupportedOMML",
+    "compare_omml",
+    "compare_omml_to_canonical",
+    "parse_omml",
+    "parse_omml_semantics",
+    "semantic_fingerprint",
+    "validate_omml_semantics",
 ]
