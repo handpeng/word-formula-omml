@@ -1,0 +1,4 @@
+interface:
+  display_name: "Word Formula OMML"
+  short_description: "Convert Word formula text to editable native equations"
+  default_prompt: "Use $word-formula-omml to convert formula-like text in this Word document into native editable equations while preserving formatting and revisions."
