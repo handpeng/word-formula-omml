@@ -60,6 +60,16 @@ V1 must distinguish three different claims:
 2. **Word-native layout fidelity — required.** Inline/display behavior, baseline, clipping, formula size, contextual color, and semantic emphasis must be appropriate in Microsoft Word.
 3. **Pixel-identical TeX rendering — not guaranteed.** Native OMML uses the Office math layout engine and math fonts, so pixel identity with TeX is not a V1 acceptance criterion. Where comparison is available, it is validation evidence, not a promise of identical glyph metrics.
 
+### 2.2 Delivery completeness levels
+
+Every run must distinguish:
+
+- `COMPLETE` — every authorized occurrence was converted or intentionally preserved under an approved rule and all gates passed;
+- `PARTIAL_REVIEW_OUTPUT` — a useful artifact was produced but one or more authorized occurrences remain unresolved/refused;
+- `FAILED` — required integrity, semantic, package, revision, or validation gates did not pass.
+
+A partial artifact must never be named, reported, or delivered as a complete corrected document. Final clean/redlined deliverables are `COMPLETE` only when all authorized occurrences are accounted for, including explicitly approved exclusions.
+
 ---
 
 ## 3. Non-negotiable invariants
@@ -81,13 +91,15 @@ These apply to every issue and implementation PR.
 - Creating a clean output may accept only the dedicated revision author for the current remediation session.
 - Rejecting the current session’s formula revisions must reconstruct the expected source-visible text for every affected location.
 
-### 3.3 Mathematical safety
+### 3.3 Mathematical and generation safety
 
 - Detection is candidate generation, not proof of mathematical intent.
 - Malformed, ambiguous, or corrupted notation must not be guessed solely to keep the pipeline moving.
 - Recovery must record its evidence source and confidence.
 - Ambiguous cases must enter a review queue unless an authoritative source resolves them.
 - Existing native OMML must not be reconverted by default.
+- A generated OMML node is not accepted merely because Pandoc produced exactly one `m:oMath` node. For supported formula families, generated OMML must be parsed/normalized and checked against the approved canonical mathematical representation.
+- Unsupported LaTeX commands, Pandoc conversion diagnostics that may alter meaning, or structures that cannot be semantically validated must fail closed or require explicit review.
 
 ### 3.4 Style safety
 
@@ -98,6 +110,13 @@ These apply to every issue and implementation PR.
 ### 3.5 Fail-closed rule
 
 Any automatic applicator must refuse a case it cannot prove safe. Unsupported or risky occurrences must be emitted as explicit statuses such as `NEEDS_REVIEW` or `NEEDS_SPECIAL_HANDLER`; they must never be silently skipped, coerced, or partially replaced.
+
+### 3.6 Batch and transactional safety
+
+- Build and freeze an application plan before modifying OOXML; record the exact source hash, approved occurrence IDs, expected match counts, and intended action for every occurrence.
+- Every occurrence must end in a terminal accounted status; no occurrence may disappear between inventory, recovery, application, and audit.
+- Per-occurrence replacement may be transactional, but batch completion is separate: any unresolved authorized occurrence downgrades the batch to `PARTIAL_REVIEW_OUTPUT` unless the user explicitly approves exclusion.
+- Temporary/intermediate files may exist during processing, but validated final paths must be written atomically and only after the corresponding delivery gate passes.
 
 ---
 
@@ -162,6 +181,7 @@ The V1 occurrence record should be able to represent:
 - expected match count;
 - application status;
 - OMML template identity/hash;
+- semantic-validation outcome;
 - audit outcome.
 
 ### 5.2 Canonical representation goals
@@ -180,6 +200,12 @@ The representation must distinguish semantically different structures that may l
 
 Do not require a full computer-algebra system for V1. The representation only needs to be rich enough for deterministic recovery, comparison, generation, and audit of supported formula families.
 
+### 5.3 OMML semantic round-trip goal
+
+For formula families declared supported for automatic application, the system must be able to derive a deterministic semantic representation from generated OMML and compare it with the approved canonical representation. Formatting-only properties may differ, but grouping, operators, scripts, fraction/root/matrix structure, delimiters, accents, and other supported semantic structure must match.
+
+If a formula can be generated but cannot be semantically checked under the current support matrix, it must not be promoted to high-confidence automatic conversion merely because generation succeeded.
+
 ---
 
 ## 6. Planned workstreams
@@ -192,7 +218,7 @@ Deliverables:
 - add schema validation;
 - load current minimal manifests without breaking `generate_omml_library.py`;
 - define deterministic IDs and retry stability;
-- define application/recovery statuses and confidence categories;
+- define application/recovery statuses, delivery completeness states, and confidence categories;
 - add migration/compatibility tests.
 
 Acceptance:
@@ -200,7 +226,8 @@ Acceptance:
 - existing documented generator examples still work;
 - invalid/unknown required fields fail clearly;
 - schema round trips deterministically;
-- a frozen manifest cannot be reused against a changed source hash without explicit rebuild.
+- a frozen manifest cannot be reused against a changed source hash without explicit rebuild;
+- every occurrence and every batch has an explicit lifecycle/completion status.
 
 Dependencies: none.
 
@@ -221,13 +248,16 @@ Coverage must include at least:
 - existing OMML;
 - inline and display equations;
 - subscripts, superscripts, fractions, roots, inequalities, Greek, intervals, scientific notation;
-- negative cases that must fail closed.
+- negative cases that must fail closed;
+- semantically dangerous near-matches such as script/grouping changes;
+- batch cases containing both safe and refused occurrences.
 
 Acceptance:
 
 - fixtures are deterministic and contain no sensitive/private manuscript content;
 - expected package invariants and formula outcomes are machine-readable;
-- tests can demonstrate both success and deliberate refusal paths.
+- expected canonical semantics and expected refusal reasons are machine-readable for supported cases;
+- tests can demonstrate success, semantic mismatch detection, and deliberate refusal paths.
 
 Dependencies: W0 may evolve in parallel but fixture expectations must use the final schema before closure.
 
@@ -259,7 +289,7 @@ Acceptance:
 
 Dependencies: W0, W1 fixtures.
 
-### W3 — Evidence-backed recovery, corruption normalization, and canonical formula IR (P0)
+### W3 — Evidence-backed recovery, corruption normalization, canonical formula IR, and generator semantic contract (P0)
 
 Implement deterministic normalization/recovery for supported families, including safe normalization of common operator spellings, Unicode forms, lost LaTeX delimiters/escapes where context proves math intent, and selected corruption patterns.
 
@@ -269,13 +299,17 @@ Requirements:
 - every transformation is traceable from raw source to normalized form;
 - conflicting evidence produces review-required status;
 - supported recovered formulas produce canonical IR plus normalized LaTeX;
-- ambiguous grouping or mathematical meaning fails closed.
+- ambiguous grouping or mathematical meaning fails closed;
+- `generate_omml_library.py` or its replacement must surface relevant Pandoc errors/diagnostics instead of treating “one OMML node generated” as semantic success;
+- define the supported formula families for which OMML semantic round-trip validation is implemented.
 
 Acceptance:
 
 - positive and negative cases are covered by W1 fixtures;
 - semantic distinctions listed in section 5.2 are preserved;
-- no heuristic rule can silently override authoritative evidence.
+- no heuristic rule can silently override authoritative evidence;
+- tests prove that a deliberately altered script/group/operator structure is detected as a semantic mismatch;
+- unsupported/unknown LaTeX constructs do not silently enter the high-confidence path.
 
 Dependencies: W0, W1, W2.
 
@@ -308,33 +342,37 @@ Acceptance:
 
 Dependencies: W0, W1, W2.
 
-### W5 — Fail-closed safe OOXML applicator (P0)
+### W5 — Fail-closed safe OOXML applicator and frozen application plan (P0)
 
 Create a reusable applicator for provably safe cases while preserving the current rule that complex structures may require task-specific handlers.
 
-Automatic V1 eligibility should initially be limited to cases whose exact occurrence, structural boundaries, and preservation plan are proven. At minimum, the default fast path should support an ordinary single-run occurrence with exact anchors and no unsafe protected intersection.
+Automatic V1 eligibility should initially be limited to cases whose exact occurrence, structural boundaries, semantics, and preservation plan are proven. At minimum, the default fast path should support an ordinary single-run occurrence with exact anchors and no unsafe protected intersection.
 
 Requirements:
 
+- build a dry-run/frozen application plan before writes;
 - minimal tracked replacement;
 - unique revision IDs above existing IDs;
 - dedicated revision author;
 - unchanged prefix/suffix run fragments preserved;
-- native OMML inserted from trusted templates;
+- native OMML inserted only from semantically validated trusted templates;
 - resolved style applied without rewriting unrelated run/paragraph properties;
 - atomic output to new files;
-- structured refusal reason for every ineligible occurrence.
+- structured refusal reason for every ineligible occurrence;
+- terminal status for every planned occurrence.
 
 Acceptance:
 
 - no global replace path exists;
 - multi-run/protected/revision-intersecting cases are handled only when a preservation algorithm is explicitly implemented and tested; otherwise they refuse;
 - rejecting session revisions reconstructs source-visible text at affected locations;
-- clean output accepts only the session author’s revisions.
+- clean output accepts only the session author’s revisions;
+- a batch with unresolved authorized occurrences cannot be reported as `COMPLETE`;
+- a crash/failure before validation cannot replace a validated final artifact.
 
 Dependencies: W0, W1, W3, W4.
 
-### W6 — Audit hardening and invariant fingerprints (P0)
+### W6 — Audit hardening, invariant fingerprints, and semantic OMML verification (P0)
 
 Extend `audit_docx_formulas.py` from count-based structural checks to stronger invariants.
 
@@ -343,10 +381,12 @@ Required additions:
 - canonical fingerprints of pre-existing `w:ins`, `w:del`, `w:pPrChange`, and `w:rPrChange` grouped by identity/author/location;
 - affected-paragraph reconstruction check after rejecting the current remediation revisions;
 - manifest-to-OMML one-to-one verification;
+- OMML-to-canonical semantic comparison for supported formula families;
 - package part allowlist/diff report with explicit reasons;
 - style outcome checks for expected occurrence color/size/emphasis where represented in the manifest;
-- source hash and frozen-manifest consistency checks;
+- source hash and frozen-manifest/application-plan consistency checks;
 - story/part-aware formula counts as support expands;
+- complete accounting of occurrence terminal statuses;
 - machine-readable JSON report suitable for CI.
 
 Acceptance:
@@ -354,13 +394,15 @@ Acceptance:
 - tests demonstrate detection of a changed pre-existing revision even when revision counts remain equal;
 - tests demonstrate detection of unrelated package drift;
 - tests demonstrate successful reconstruction of source-visible affected text;
+- tests demonstrate detection of generated OMML whose mathematical structure differs from the approved canonical structure;
+- tests demonstrate that an unaccounted occurrence prevents a `COMPLETE` result;
 - current documented audit usage remains supported or receives a documented compatible migration.
 
-Dependencies: W0, W1; integration with W5 before P0 completion.
+Dependencies: W0, W1; integration with W3 and W5 before P0 completion.
 
-### W7 — CI and reproducible acceptance gates (P0)
+### W7 — CI and reproducible P0 acceptance gates (P0)
 
-Add automated tests for schema, inventory, recovery, OMML generation, application, audit, and negative fail-closed cases.
+Add automated tests for schema, inventory, recovery, canonical semantics, OMML generation/semantic verification, style resolution, application, audit, and negative fail-closed cases.
 
 CI should run on a supported Python matrix and a pinned/declared Pandoc compatibility range. Native Microsoft Word validation may remain a Windows/manual or controlled acceptance gate if it cannot run reliably in ordinary CI, but the boundary must be explicit.
 
@@ -369,7 +411,8 @@ Acceptance:
 - CI is deterministic from a clean checkout;
 - required dependencies and versions are documented;
 - no test requires private documents;
-- failure output identifies the violated invariant rather than only returning a generic non-zero status.
+- failure output identifies the violated invariant rather than only returning a generic non-zero status;
+- semantic mismatch and partial-batch cases are first-class regression tests.
 
 Dependencies: W0-W6 sufficient to exercise end-to-end P0.
 
@@ -401,7 +444,7 @@ Scope:
 - map approved TeX expressions to Word occurrences through explicit anchors/evidence, not fuzzy replacement alone;
 - render normalized TeX for reference where practical;
 - render/export Word equations through native Word automation where available;
-- compare semantics deterministically and use visual comparison as supporting evidence;
+- compare canonical semantics deterministically and use visual comparison as supporting evidence;
 - report that native OMML is not guaranteed to be pixel-identical to TeX.
 
 Acceptance:
@@ -425,14 +468,17 @@ Scope:
 - approved recovery/generation/application;
 - audit and delivery report;
 - resume/retry using frozen hashes and stable IDs;
-- per-occurrence status reporting for batches.
+- per-occurrence status reporting for batches;
+- explicit `COMPLETE` / `PARTIAL_REVIEW_OUTPUT` / `FAILED` result classification.
 
 Acceptance:
 
 - partial batch success never masquerades as full success;
 - every refused/skipped occurrence has an explicit reason;
+- every authorized occurrence is accounted for in the final report;
 - retries are idempotent against unchanged inputs;
-- changed inputs require rebuild/re-approval rather than silent relocation.
+- changed inputs require rebuild/re-approval rather than silent relocation;
+- partial artifacts use unmistakable non-final naming/reporting and are never substituted for validated complete deliverables.
 
 Dependencies: P0, W8/W9 integrations as applicable.
 
@@ -445,8 +491,10 @@ Documentation must state:
 - supported input classes;
 - confidence/review behavior;
 - semantic vs. visual fidelity guarantees;
+- OMML semantic-validation support matrix;
 - style inheritance rules;
 - fail-closed boundaries;
+- batch completeness semantics;
 - required dependencies;
 - native Word validation expectations;
 - what remains unsupported;
@@ -481,12 +529,12 @@ W0 schema/status model
    |          |\
    |          | +--> W2 inventory/classifier
    |          |          |\
-   |          |          | +--> W3 recovery/IR
+   |          |          | +--> W3 recovery/IR/semantic contract
    |          |          | +--> W4 style resolver
    |          |          |          \
    |          |          +------------> W5 safe applicator
    |          |                         |
-   |          +-----------------------> W6 audit hardening
+   |          +-----------------------> W6 audit/semantic verification
    |                                    |
    +----------------------------------> W7 CI/P0 gate
                                          |
@@ -510,15 +558,18 @@ Parallel work is allowed only when interfaces are frozen enough to prevent diver
 P0 is complete only when all of the following are true:
 
 - versioned manifest/schema and compatibility tests pass;
-- fixture corpus covers supported positive and fail-closed cases;
+- fixture corpus covers supported positive, semantic-mismatch, partial-batch, and fail-closed cases;
 - read-only inventory distinguishes candidate detection from approved math;
 - supported damaged/plain/Unicode formula families can be normalized with traceable evidence;
 - canonical representation preserves the required semantic distinctions;
+- supported generated OMML can be semantically compared back to the approved canonical representation;
+- unsupported/semantically unvalidated generator output cannot enter the high-confidence automatic path;
 - context style resolution is occurrence-specific and tested;
 - safe applicator automatically edits only provably safe occurrences and reports all others;
 - audit fingerprints prove pre-existing revisions were not altered;
 - session-revision rejection reconstructs source-visible affected text;
 - unrelated package/media/relationship drift is detected;
+- every authorized occurrence is terminally accounted for and incomplete batches cannot claim complete delivery;
 - redlined and clean outputs pass strict package validation;
 - at least one end-to-end representative DOCX passes native Microsoft Word open/visual inspection without repair;
 - CI passes from a clean checkout;
@@ -536,10 +587,10 @@ V1 may be declared stable only when:
 - supported existing/legacy equation and Word story behavior is explicitly documented and tested;
 - authoritative-source alignment conflicts are fail-closed;
 - native Word validation workflow is reproducible and reports limitations honestly;
-- batch/orchestration reports are complete and idempotent;
+- batch/orchestration reports are complete, idempotent, and cannot hide unresolved occurrences;
 - README/SKILL/reference claims match the tested support matrix;
 - all V1 Issues are closed through reviewed implementation PRs;
-- a final repository-wide review finds no unresolved semantic, style, OOXML, revision, compatibility, or workflow risk.
+- a final repository-wide review finds no unresolved semantic, style, OOXML, revision, compatibility, completeness, or workflow risk.
 
 ---
 
@@ -554,6 +605,7 @@ V1 will not:
 - rewrite another author’s tracked changes;
 - silently convert all prose tokens that resemble Greek names or variables;
 - claim support for every MathType/OLE/legacy equation technology without fixtures and preservation tests;
+- treat successful OMML generation as proof of semantic correctness when semantic validation is unavailable;
 - sacrifice editability by replacing recoverable formulas with images merely to match TeX appearance.
 
 ---
@@ -568,6 +620,7 @@ Each GitHub Issue created from this TODO must contain:
 - concrete files/modules expected to change where known;
 - implementation requirements;
 - tests/fixtures required;
+- semantic validation requirements where applicable;
 - fail-closed/error behavior;
 - compatibility requirements;
 - Definition of Done;
@@ -584,11 +637,13 @@ For every implementation PR:
 1. Re-read the governing Issue and relevant sections of this TODO.
 2. Review the actual diff, not only the PR description.
 3. Run/inspect positive tests and negative/fail-closed tests.
-4. Check manifest/schema compatibility where applicable.
-5. Check source immutability and package/revision invariants.
-6. Check that new automation does not silently broaden supported scope.
-7. Check docs/CLI messages do not overstate guarantees.
-8. Re-review after every substantive fix because a correction can introduce a new workflow risk.
-9. Merge only when no unresolved omission, contradiction, unsafe fallback, or new process risk remains.
+4. Check semantic validation whenever formula generation/recovery changes.
+5. Check manifest/schema compatibility where applicable.
+6. Check source immutability and package/revision invariants.
+7. Check occurrence accounting and delivery completeness behavior.
+8. Check that new automation does not silently broaden supported scope.
+9. Check docs/CLI messages do not overstate guarantees.
+10. Re-review after every substantive fix because a correction can introduce a new workflow risk.
+11. Merge only when no unresolved omission, contradiction, unsafe fallback, or new process risk remains.
 
 If a true blocker is discovered, record it explicitly in the Issue/PR instead of weakening an invariant to obtain a passing result.
