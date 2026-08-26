@@ -37,6 +37,39 @@ Build the manifest at occurrence level, not at unique-formula level. Repeated fo
 
 The OMML library generator accepts either this object form or a bare array of formula records. It requires only `id`, `latex`, and optional `layout`; the remaining fields control safe application and audit.
 
+## Versioned contract
+
+New manifests are written with `schema_version: 1`. The shared
+`word_formula_omml.contract` module is the only schema/status implementation;
+inventory, recovery, generation, application, and audit stages must extend
+these records instead of defining parallel dictionaries.
+
+The loader accepts the historical bare array and the historical object without
+`schema_version` as a compatibility migration to version 1. An explicitly
+unknown schema version, enum value, required field, or top-level/record field
+is rejected. Forward-compatible additions belong under an `extensions` object.
+
+The manifest identity is deterministic and derived from its source binding,
+occurrences, and immutable metadata. A frozen job additionally binds that
+identity to the source SHA-256, occurrence IDs, and an exact non-empty set of
+requested deliverables. A string shorthand such as `"clean"` uses the
+conservative required gates `STRUCTURAL_AUDIT` and `NATIVE_WORD`; callers may
+provide an explicit gate list when a staging-only artifact is intentionally
+being modeled. Each requested artifact has its own deterministic ID,
+candidate hash, required gates, and candidate-bound evidence. Job delivery
+status is derived, never caller-set:
+
+- `COMPLETE` requires successful terminal accounting for every occurrence and
+  `PASS` evidence for every required gate on every requested artifact.
+- `PARTIAL_REVIEW_OUTPUT` represents unresolved occurrences or missing/stale
+  evidence and is never a final deliverable.
+- `FAILED` represents an explicit failed occurrence or gate.
+
+Changing the source, frozen manifest, requested artifact set, or candidate
+content invalidates the relevant job/evidence and requires a new freeze or
+validation cycle. A redlined artifact's evidence cannot satisfy a clean
+artifact's gates.
+
 ## Manifest Rules
 
 - IDs must be unique and stable across retries.

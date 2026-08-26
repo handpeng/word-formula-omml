@@ -6,18 +6,20 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import re
 import subprocess
 import sys
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from word_formula_omml.contract import load_manifest
+
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 M = "http://schemas.openxmlformats.org/officeDocument/2006/math"
 NS = {"w": W, "m": M}
-ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,63}$")
 MARKER_PREFIX = "OMML_ID:"
 
 
@@ -31,30 +33,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_formulas(path: Path) -> list[dict[str, str]]:
-    data = json.loads(path.read_text(encoding="utf-8"))
-    rows = data.get("formulas") if isinstance(data, dict) else data
-    if not isinstance(rows, list) or not rows:
+    manifest = load_manifest(path)
+    rows = manifest.formulas
+    if not rows:
         raise ValueError("manifest must contain a non-empty formulas array")
-
-    formulas = []
-    seen = set()
-    for position, row in enumerate(rows, 1):
-        if not isinstance(row, dict):
-            raise ValueError(f"formula {position} must be an object")
-        formula_id = row.get("id")
-        latex = row.get("latex")
-        layout = row.get("layout", "inline")
-        if not isinstance(formula_id, str) or not ID_RE.fullmatch(formula_id):
-            raise ValueError(f"invalid formula id at position {position}: {formula_id!r}")
-        if formula_id in seen:
-            raise ValueError(f"duplicate formula id: {formula_id}")
-        if not isinstance(latex, str) or not latex.strip():
-            raise ValueError(f"formula {formula_id} has empty latex")
-        if layout not in {"inline", "display"}:
-            raise ValueError(f"formula {formula_id} has invalid layout: {layout!r}")
-        seen.add(formula_id)
-        formulas.append({"id": formula_id, "latex": latex, "layout": layout})
-    return formulas
+    return [
+        {"id": row["id"], "latex": row["latex"], "layout": row["layout"]}
+        for row in rows
+    ]
 
 
 def pandoc_api_version(executable: str) -> list[int]:
