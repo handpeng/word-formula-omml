@@ -13,6 +13,10 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from word_formula_omml.semantic import compare_omml_to_canonical
+
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 M = "http://schemas.openxmlformats.org/officeDocument/2006/math"
@@ -34,6 +38,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--residual", action="append", default=[], help="Regex forbidden in current text")
     parser.add_argument("--allow-part", action="append", default=[], help="Part allowed to differ from baseline")
     parser.add_argument("--require-cambria-math", action="store_true")
+    parser.add_argument(
+        "--semantic-index",
+        type=Path,
+        help="Generated-library index whose expected canonical semantics must be rechecked",
+    )
     parser.add_argument("--json", type=Path, help="Write the report to this JSON file")
     return parser.parse_args()
 
@@ -145,6 +154,95 @@ def inspect(path: Path, package: dict[str, bytes]) -> tuple[dict, ET.Element]:
     return report, document
 
 
+def audit_semantic_index(document: ET.Element, index_path: Path) -> tuple[list[dict], list[str]]:
+    """Recompute semantic results with the shared W3B bridge.
+
+    The index supplies identity and expected canonical values only.  Its prior
+    semantic result is deliberately ignored so a changed candidate cannot
+    reuse stale PASS evidence.
+    """
+
+    try:
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"cannot load semantic index {index_path}: {error}") from error
+    if not isinstance(index, dict) or not isinstance(index.get("formulas"), list):
+        raise RuntimeError("semantic index must contain a formulas array")
+    schema_version = index.get("schema_version")
+    if not isinstance(schema_version, int) or isinstance(schema_version, bool) or schema_version != 1:
+        raise RuntimeError(f"unsupported semantic index schema_version {index.get('schema_version')!r}")
+    if not index["formulas"]:
+        raise RuntimeError("semantic index formulas array must not be empty")
+    paragraphs = document.findall(".//w:body//w:p", NS)
+    results: list[dict] = []
+    errors: list[str] = []
+    seen_ids: set[str] = set()
+    for position, entry in enumerate(index["formulas"], 1):
+        if not isinstance(entry, dict):
+            errors.append(f"semantic index formulas[{position}] is not an object")
+            continue
+        formula_id = entry.get("id")
+        if not isinstance(formula_id, str) or not formula_id.strip():
+            errors.append(f"semantic index formulas[{position}] has an invalid id")
+            formula_id = f"index-{position}"
+        elif formula_id in seen_ids:
+            errors.append(f"{formula_id}: duplicate semantic index id")
+        seen_ids.add(formula_id)
+        expected = entry.get("canonical")
+        paragraph_number = entry.get("equation_paragraph")
+        if expected is None:
+            errors.append(f"{formula_id}: semantic index has no expected canonical value")
+            continue
+        if (
+            not isinstance(paragraph_number, int)
+            or isinstance(paragraph_number, bool)
+            or paragraph_number < 1
+            or paragraph_number > len(paragraphs)
+        ):
+            errors.append(f"{formula_id}: equation paragraph {paragraph_number!r} is out of range")
+            continue
+        marker_number = entry.get("marker_paragraph")
+        if (
+            not isinstance(marker_number, int)
+            or isinstance(marker_number, bool)
+            or marker_number < 1
+            or marker_number > len(paragraphs)
+        ):
+            errors.append(f"{formula_id}: marker paragraph {marker_number!r} is out of range")
+        else:
+            marker_text = "".join(paragraphs[marker_number - 1].itertext()).strip()
+            if marker_text != f"OMML_ID:{formula_id}":
+                errors.append(f"{formula_id}: marker paragraph does not identify this formula")
+            if marker_number + 1 != paragraph_number:
+                errors.append(f"{formula_id}: marker and equation paragraphs are not adjacent")
+        equations = paragraphs[paragraph_number - 1].findall(".//m:oMath", NS)
+        if len(equations) != 1:
+            errors.append(f"{formula_id}: equation paragraph has {len(equations)} m:oMath nodes, expected 1")
+            continue
+        actual_xml = ET.tostring(equations[0], encoding="utf-8")
+        expected_hash = entry.get("omml_sha256")
+        if not isinstance(expected_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_hash):
+            errors.append(f"{formula_id}: semantic index has an invalid or missing OMML candidate hash")
+        elif expected_hash != hashlib.sha256(actual_xml).hexdigest():
+            errors.append(f"{formula_id}: OMML candidate hash does not match semantic index")
+        source_latex = entry.get("latex")
+        if not isinstance(source_latex, str) or not source_latex.strip():
+            errors.append(f"{formula_id}: semantic index has no approved LaTeX source")
+            source_latex = None
+        result = compare_omml_to_canonical(
+            equations[0],
+            expected,
+            source_latex=source_latex,
+        )
+        serialized = {"id": formula_id, "equation_paragraph": paragraph_number, **result.to_dict()}
+        results.append(serialized)
+        if not result.passed:
+            errors.append(f"{formula_id}: semantic {result.status}: {result.reason}")
+    if len(results) != len(index["formulas"]):
+        errors.append("semantic index entries could not all be rechecked")
+    return results, errors
+
+
 def main() -> int:
     args = parse_args()
     errors = []
@@ -173,6 +271,11 @@ def main() -> int:
             residuals[pattern] = len(matches)
             errors.append(f"residual pattern {pattern!r}: {len(matches)} matches")
     report["residuals"] = residuals
+
+    if args.semantic_index:
+        semantic_results, semantic_errors = audit_semantic_index(document, args.semantic_index)
+        report["semantic_validation"] = semantic_results
+        errors.extend(semantic_errors)
 
     if args.baseline:
         baseline_package = read_package(args.baseline)
@@ -209,6 +312,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (OSError, RuntimeError, zipfile.BadZipFile, ET.ParseError, re.error) as error:
+    except (OSError, RuntimeError, zipfile.BadZipFile, ET.ParseError, re.error, json.JSONDecodeError) as error:
         print(f"error: {error}", file=sys.stderr)
         raise SystemExit(2)
