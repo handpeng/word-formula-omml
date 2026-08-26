@@ -59,6 +59,10 @@ def omath(*children: ET.Element) -> ET.Element:
     return value
 
 
+def raw_run_omath(*texts: str) -> ET.Element:
+    return omath(*(math_run(text) for text in texts))
+
+
 def script(base: ET.Element, *, sub: ET.Element | None = None, sup: ET.Element | None = None) -> ET.Element:
     if sub is not None and sup is not None:
         local = "sSubSup"
@@ -179,6 +183,45 @@ class SemanticBridgeTests(unittest.TestCase):
             {"kind": "roman", "text": "Total"},
             parse_omml_semantics(omath(math_run("Total", literal=True))),
         )
+
+    def test_pandoc_raw_run_numeric_intervals_use_canonical_interval_ir(self):
+        expected = canonicalize_formula("(0,1]")
+        self.assertEqual(
+            expected,
+            parse_omml_semantics(raw_run_omath("(0,1]")),
+        )
+        result = compare_omml_to_canonical(
+            raw_run_omath("(", "0", ",", "1", "]"),
+            expected,
+        )
+        self.assertEqual(SemanticStatus.PASS.value, result.status)
+
+        result = compare_omml_to_canonical(
+            raw_run_omath(" ( ", "-1", " , ", "2.5", " ) "),
+            canonicalize_formula("(-1,2.5)"),
+        )
+        self.assertEqual(SemanticStatus.PASS.value, result.status)
+
+    def test_pandoc_raw_run_interval_boundaries_are_semantically_checked(self):
+        result = compare_omml_to_canonical(
+            raw_run_omath("[0,1]"),
+            canonicalize_formula("[0,1]"),
+        )
+        self.assertEqual(SemanticStatus.PASS.value, result.status)
+
+        result = compare_omml_to_canonical(
+            raw_run_omath("[0,1]"),
+            canonicalize_formula("(0,1]"),
+        )
+        self.assertEqual(SemanticStatus.MISMATCH.value, result.status)
+        self.assertEqual("closed", result.actual["left"])
+        self.assertEqual("closed", result.actual["right"])
+
+    def test_non_numeric_raw_structural_runs_remain_fail_closed(self):
+        for source in ("(x+1)", "(first,second)", "(a,b)", "(0,1] + x"):
+            result = compare_omml_to_canonical(raw_run_omath(source), "x")
+            self.assertEqual(SemanticStatus.UNSUPPORTED.value, result.status, source)
+            self.assertIn("raw_structural_character:(", result.reason, source)
 
     def test_mutated_semantics_are_rejected(self):
         expected_script = canonicalize_formula("x_i^2")
