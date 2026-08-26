@@ -122,7 +122,7 @@ Do not approve or merge a PR while any substantive review finding remains open. 
 A PR may merge only when all of the following are true:
 
 - the active Issue's Definition of Done and acceptance criteria are satisfied when the PR implements an Issue;
-- all required dependencies and applicable P0/V1 gates are satisfied;
+- all prerequisite dependencies and gates that must already be complete are satisfied; when the current PR itself is intended to satisfy a P0/V1 exit gate, every acceptance criterion and required evidence for that gate must be present before merge, but the gate is not treated as a circular prerequisite to itself;
 - required tests and negative/fail-closed cases pass where applicable;
 - the latest actual diff has been reviewed after the latest substantive change;
 - no unresolved semantic, style, OOXML, revision-preservation, package-integrity, compatibility, completeness, dependency, or workflow risk remains;
