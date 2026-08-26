@@ -1181,6 +1181,21 @@ def _session_insertion_nodes(
                     f"location ({part} paragraph {actual_paragraph})"
                 )
                 continue
+            if parent is None:
+                errors.append(f"{action.occurrence_id}: session insertion has no frozen replacement parent")
+                continue
+            siblings = list(parent)
+            wrapper_index = siblings.index(wrapper)
+            if (
+                wrapper_index == 0
+                or siblings[wrapper_index - 1].tag != QW("del")
+                or _attribute(siblings[wrapper_index - 1], W, "author") != plan.revision_author
+                or _attribute(siblings[wrapper_index - 1], W, "id") != str(action.deletion_revision_id)
+            ):
+                errors.append(
+                    f"{action.occurrence_id}: session insertion is not adjacent to its frozen deletion"
+                )
+                continue
             equations = wrapper.findall(".//m:oMath", NS)
             if len(equations) != 1:
                 errors.append(f"{action.occurrence_id}: session insertion has {len(equations)} equations")

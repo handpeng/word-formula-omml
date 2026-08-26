@@ -288,6 +288,35 @@ class AuditTests(unittest.TestCase):
             self.assertEqual("FAIL", report["status"])
             self.assertTrue(any("outside its frozen location" in error for error in report["errors"]))
 
+    def test_redlined_session_insertion_must_remain_next_to_its_deletion(self):
+        audit = load_audit()
+        with tempfile.TemporaryDirectory() as name:
+            source, manifest, plan, staged, paths = self.make_case(Path(name))
+
+            def move_insertion_within_paragraph(root):
+                paragraph = root.find(".//w:body/w:p", {"w": W})
+                self.assertIsNotNone(paragraph)
+                insertion = next(
+                    child
+                    for child in paragraph
+                    if child.tag == q(W, "ins") and child.get(q(W, "author")) == plan.revision_author
+                )
+                paragraph.remove(insertion)
+                paragraph.append(insertion)
+
+            mutate_part(staged.artifact_paths["redlined"], "word/document.xml", move_insertion_within_paragraph)
+            report = audit.audit_artifact(
+                paths["redlined"],
+                baseline=source,
+                manifest=manifest,
+                application_plan=plan,
+                job=staged.job,
+                artifact_id="redlined",
+                artifact_kind="redlined",
+            )
+            self.assertEqual("FAIL", report["status"])
+            self.assertTrue(any("not adjacent to its frozen deletion" in error for error in report["errors"]))
+
     def test_affected_paragraph_structure_drift_is_not_masked(self):
         audit = load_audit()
         for kind in ("redlined", "clean"):
