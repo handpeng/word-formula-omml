@@ -6,7 +6,7 @@ This file is the implementation authority for the next major evolution of `word-
 
 The repository is moving from a **safe LaTeX/plain-text-to-OMML conversion skill** to a **Word formula recovery and native-equation remediation engine** that can recover damaged or heterogeneous mathematical notation, preserve mathematical meaning, adapt to Word context styles, and prove that unrelated document content was not changed.
 
-Implementation must proceed through focused GitHub Issues and PRs. Each implementation PR must be reviewed against its actual diff, tests, and acceptance evidence. A PR may merge only when its issue-level acceptance criteria pass and the diff introduces no unresolved semantic, OOXML, revision-preservation, compatibility, or workflow risk.
+Implementation must proceed through focused GitHub Issues and PRs. Each implementation PR must be reviewed against its actual diff, tests, and acceptance evidence. A PR may merge only when its issue-level acceptance criteria pass and the diff introduces no unresolved semantic, OOXML, revision-preservation, compatibility, completeness, or workflow risk.
 
 This TODO is intentionally stricter than a feature wishlist. Any implementation that violates a non-negotiable invariant below is incomplete even if its happy-path conversion appears correct.
 
@@ -42,7 +42,7 @@ DOCX
   -> source-type classification
   -> evidence-backed recovery and normalization
   -> canonical formula representation
-  -> trusted OMML generation
+  -> trusted OMML generation + semantic bridge
   -> context style resolution
   -> fail-closed OOXML application
   -> structural/revision/semantic audit
@@ -200,9 +200,11 @@ The representation must distinguish semantically different structures that may l
 
 Do not require a full computer-algebra system for V1. The representation only needs to be rich enough for deterministic recovery, comparison, generation, and audit of supported formula families.
 
-### 5.3 OMML semantic round-trip goal
+### 5.3 OMML semantic bridge contract
 
-For formula families declared supported for automatic application, the system must be able to derive a deterministic semantic representation from generated OMML and compare it with the approved canonical representation. Formatting-only properties may differ, but grouping, operators, scripts, fraction/root/matrix structure, delimiters, accents, and other supported semantic structure must match.
+For formula families declared supported for automatic application, one shared semantic bridge must derive a deterministic representation from generated OMML and compare it with the approved canonical representation. Formatting-only properties may differ, but grouping, operators, scripts, fraction/root/matrix structure, delimiters, accents, and other supported semantic structure must match.
+
+There must not be separate competing OMML semantic parsers in the generator and audit layers. The generator/gate and final audit must consume the same tested semantic bridge library.
 
 If a formula can be generated but cannot be semantically checked under the current support matrix, it must not be promoted to high-confidence automatic conversion merely because generation succeeded.
 
@@ -289,7 +291,7 @@ Acceptance:
 
 Dependencies: W0, W1 fixtures.
 
-### W3 — Evidence-backed recovery, corruption normalization, canonical formula IR, and generator semantic contract (P0)
+### W3A — Evidence-backed recovery, corruption normalization, and canonical formula IR (P0)
 
 Implement deterministic normalization/recovery for supported families, including safe normalization of common operator spellings, Unicode forms, lost LaTeX delimiters/escapes where context proves math intent, and selected corruption patterns.
 
@@ -300,18 +302,38 @@ Requirements:
 - conflicting evidence produces review-required status;
 - supported recovered formulas produce canonical IR plus normalized LaTeX;
 - ambiguous grouping or mathematical meaning fails closed;
-- `generate_omml_library.py` or its replacement must surface relevant Pandoc errors/diagnostics instead of treating “one OMML node generated” as semantic success;
-- define the supported formula families for which OMML semantic round-trip validation is implemented.
+- recovery does not depend on OMML implementation details.
 
 Acceptance:
 
 - positive and negative cases are covered by W1 fixtures;
 - semantic distinctions listed in section 5.2 are preserved;
 - no heuristic rule can silently override authoritative evidence;
-- tests prove that a deliberately altered script/group/operator structure is detected as a semantic mismatch;
-- unsupported/unknown LaTeX constructs do not silently enter the high-confidence path.
+- unsupported/unknown source constructs do not silently enter the high-confidence path.
 
 Dependencies: W0, W1, W2.
+
+### W3B — Trusted OMML generation and shared semantic bridge (P0)
+
+Make OMML generation prove semantic equivalence for the supported automatic-conversion subset.
+
+Requirements:
+
+- retain Pandoc as the trusted complex-OMML producer unless evidence justifies a different backend;
+- surface relevant Pandoc errors/diagnostics rather than treating “one OMML node generated” as success;
+- implement one reusable OMML-to-canonical semantic parser/comparator library;
+- define the exact supported semantic families for automatic round-trip validation;
+- compare generated OMML semantics to W3A canonical IR before the template is eligible for automatic application;
+- expose semantic mismatch/unsupported-structure results to both applicator and audit layers.
+
+Acceptance:
+
+- tests prove that deliberately altered script/group/operator/fraction/root/delimiter structure is detected as semantic mismatch for supported families;
+- unsupported OMML/LaTeX constructs cannot silently receive a high-confidence semantic pass;
+- `generate_omml_library.py` remains compatible with current documented minimal manifests or receives an explicit migration path;
+- the semantic bridge is a shared module, not duplicated generator/audit logic.
+
+Dependencies: W0, W1, W3A.
 
 ### W4 — Context Style Resolver (P0)
 
@@ -355,7 +377,7 @@ Requirements:
 - unique revision IDs above existing IDs;
 - dedicated revision author;
 - unchanged prefix/suffix run fragments preserved;
-- native OMML inserted only from semantically validated trusted templates;
+- native OMML inserted only from W3B semantically validated trusted templates;
 - resolved style applied without rewriting unrelated run/paragraph properties;
 - atomic output to new files;
 - structured refusal reason for every ineligible occurrence;
@@ -370,18 +392,18 @@ Acceptance:
 - a batch with unresolved authorized occurrences cannot be reported as `COMPLETE`;
 - a crash/failure before validation cannot replace a validated final artifact.
 
-Dependencies: W0, W1, W3, W4.
+Dependencies: W0, W1, W3A, W3B, W4.
 
-### W6 — Audit hardening, invariant fingerprints, and semantic OMML verification (P0)
+### W6 — Audit hardening and invariant verification (P0)
 
-Extend `audit_docx_formulas.py` from count-based structural checks to stronger invariants.
+Extend `audit_docx_formulas.py` from count-based structural checks to stronger invariants. W6 must consume the W3B semantic bridge; it must not implement a second OMML semantic parser.
 
 Required additions:
 
 - canonical fingerprints of pre-existing `w:ins`, `w:del`, `w:pPrChange`, and `w:rPrChange` grouped by identity/author/location;
 - affected-paragraph reconstruction check after rejecting the current remediation revisions;
 - manifest-to-OMML one-to-one verification;
-- OMML-to-canonical semantic comparison for supported formula families;
+- consume W3B OMML-to-canonical semantic comparison for supported formula families;
 - package part allowlist/diff report with explicit reasons;
 - style outcome checks for expected occurrence color/size/emphasis where represented in the manifest;
 - source hash and frozen-manifest/application-plan consistency checks;
@@ -394,22 +416,23 @@ Acceptance:
 - tests demonstrate detection of a changed pre-existing revision even when revision counts remain equal;
 - tests demonstrate detection of unrelated package drift;
 - tests demonstrate successful reconstruction of source-visible affected text;
-- tests demonstrate detection of generated OMML whose mathematical structure differs from the approved canonical structure;
+- tests demonstrate that W3B semantic mismatch propagates to audit failure;
 - tests demonstrate that an unaccounted occurrence prevents a `COMPLETE` result;
 - current documented audit usage remains supported or receives a documented compatible migration.
 
-Dependencies: W0, W1; integration with W3 and W5 before P0 completion.
+Dependencies: W0, W1, W3B; integration with W5 before P0 completion.
 
-### W7 — CI and reproducible P0 acceptance gates (P0)
+### W7 — CI, dependency preflight, and reproducible P0 acceptance gates (P0)
 
 Add automated tests for schema, inventory, recovery, canonical semantics, OMML generation/semantic verification, style resolution, application, audit, and negative fail-closed cases.
 
-CI should run on a supported Python matrix and a pinned/declared Pandoc compatibility range. Native Microsoft Word validation may remain a Windows/manual or controlled acceptance gate if it cannot run reliably in ordinary CI, but the boundary must be explicit.
+CI should run on a supported Python matrix and a pinned/declared Pandoc compatibility range. The companion Codex `docx` skill/capability boundary must be documented; implementation must not rely on undeclared private paths or silently missing helper tools. Native Microsoft Word validation may remain a Windows/manual or controlled acceptance gate if it cannot run reliably in ordinary CI, but the boundary must be explicit.
 
 Acceptance:
 
 - CI is deterministic from a clean checkout;
-- required dependencies and versions are documented;
+- required Python/Pandoc/companion capabilities and versions/ranges are documented or detected by preflight;
+- a missing required dependency fails early with an actionable message;
 - no test requires private documents;
 - failure output identifies the violated invariant rather than only returning a generic non-zero status;
 - semantic mismatch and partial-batch cases are first-class regression tests.
@@ -518,38 +541,57 @@ Dependencies: V1 stable.
 
 ---
 
-## 7. Dependency and execution order
+## 7. Issue slicing and dependency order
 
-Recommended issue order:
+The default issue split is intentionally one safety contract per issue:
+
+1. W0 — manifest/schema/status contract;
+2. W1 — fixture corpus/test harness;
+3. W2 — read-only inventory/classifier;
+4. W3A — recovery/normalization/canonical IR;
+5. W3B — OMML generation/shared semantic bridge;
+6. W4 — context style resolver;
+7. W5 — safe applicator/application plan;
+8. W6 — audit hardening/invariant verification;
+9. W7 — CI/dependency preflight/P0 gate;
+10. W8 — existing/legacy equations and broader stories;
+11. W9 — authoritative-source alignment/render evidence;
+12. W10 — orchestrator/review queue/batch reporting;
+13. W11 — docs/V1 release contract;
+14. W12 — post-V1 image formula recovery research.
+
+A workstream may be split further if the actual implementation diff would become too large to review. It must not be merged with a neighboring workstream merely to reduce Issue count.
+
+Recommended dependency graph:
 
 ```text
-W0 schema/status model
-   |\
-   | +--> W1 fixtures/test harness
-   |          |\
-   |          | +--> W2 inventory/classifier
-   |          |          |\
-   |          |          | +--> W3 recovery/IR/semantic contract
-   |          |          | +--> W4 style resolver
-   |          |          |          \
-   |          |          +------------> W5 safe applicator
-   |          |                         |
-   |          +-----------------------> W6 audit/semantic verification
-   |                                    |
-   +----------------------------------> W7 CI/P0 gate
-                                         |
-                           +-------------+-------------+
-                           |                           |
-                          W8                          W9
-                           \                           /
-                            +-----------> W10 <-------+
-                                           |
-                                          W11
+W0 schema/status
+  |
+  +--> W1 fixtures
+          |
+          +--> W2 inventory/classifier
+                  |\
+                  | +--> W3A recovery/IR --> W3B OMML semantic bridge --+
+                  |                                                    |
+                  +----> W4 style resolver ----------------------------+--> W5 applicator
+                                                                       |
+W1 ---------------------------------------------------------------> W6 audit
+W3B --------------------------------------------------------------> W6 audit
+                                                                       |
+W0..W6 ------------------------------------------------------------> W7 P0 gate
+                                                                       |
+                                                        +--------------+--------------+
+                                                        |                             |
+                                                       W8                            W9
+                                                        \                             /
+                                                         +-----------> W10 <----------+
+                                                                         |
+                                                                        W11
 
 W12 is post-V1 research and does not block W11.
 ```
 
-Parallel work is allowed only when interfaces are frozen enough to prevent divergent manifest or status models. If a downstream issue discovers that an upstream contract is unsafe, fix the upstream contract first rather than adding compatibility hacks downstream.
+Parallel work is allowed only when interfaces are frozen enough to prevent divergent manifest, status, style, or semantic models. If a downstream issue discovers that an upstream contract is unsafe, fix the upstream contract first rather than adding compatibility hacks downstream.
 
 ---
 
@@ -562,7 +604,7 @@ P0 is complete only when all of the following are true:
 - read-only inventory distinguishes candidate detection from approved math;
 - supported damaged/plain/Unicode formula families can be normalized with traceable evidence;
 - canonical representation preserves the required semantic distinctions;
-- supported generated OMML can be semantically compared back to the approved canonical representation;
+- a single shared semantic bridge proves supported generated OMML against the approved canonical representation;
 - unsupported/semantically unvalidated generator output cannot enter the high-confidence automatic path;
 - context style resolution is occurrence-specific and tested;
 - safe applicator automatically edits only provably safe occurrences and reports all others;
@@ -571,6 +613,7 @@ P0 is complete only when all of the following are true:
 - unrelated package/media/relationship drift is detected;
 - every authorized occurrence is terminally accounted for and incomplete batches cannot claim complete delivery;
 - redlined and clean outputs pass strict package validation;
+- dependency preflight is deterministic and missing requirements fail clearly;
 - at least one end-to-end representative DOCX passes native Microsoft Word open/visual inspection without repair;
 - CI passes from a clean checkout;
 - no known P0 invariant is represented only as prose without executable validation where executable validation is feasible.
@@ -590,7 +633,7 @@ V1 may be declared stable only when:
 - batch/orchestration reports are complete, idempotent, and cannot hide unresolved occurrences;
 - README/SKILL/reference claims match the tested support matrix;
 - all V1 Issues are closed through reviewed implementation PRs;
-- a final repository-wide review finds no unresolved semantic, style, OOXML, revision, compatibility, completeness, or workflow risk.
+- a final repository-wide review finds no unresolved semantic, style, OOXML, revision, compatibility, completeness, dependency, or workflow risk.
 
 ---
 
@@ -614,6 +657,7 @@ V1 will not:
 
 Each GitHub Issue created from this TODO must contain:
 
+- governing TODO workstream;
 - objective and user-facing outcome;
 - in-scope and out-of-scope behavior;
 - upstream dependencies and downstream contract;
@@ -641,9 +685,10 @@ For every implementation PR:
 5. Check manifest/schema compatibility where applicable.
 6. Check source immutability and package/revision invariants.
 7. Check occurrence accounting and delivery completeness behavior.
-8. Check that new automation does not silently broaden supported scope.
-9. Check docs/CLI messages do not overstate guarantees.
-10. Re-review after every substantive fix because a correction can introduce a new workflow risk.
-11. Merge only when no unresolved omission, contradiction, unsafe fallback, or new process risk remains.
+8. Check dependency/preflight behavior if new tooling is introduced.
+9. Check that new automation does not silently broaden supported scope.
+10. Check docs/CLI messages do not overstate guarantees.
+11. Re-review after every substantive fix because a correction can introduce a new workflow risk.
+12. Merge only when no unresolved omission, contradiction, unsafe fallback, or new process risk remains.
 
 If a true blocker is discovered, record it explicitly in the Issue/PR instead of weakening an invariant to obtain a passing result.
