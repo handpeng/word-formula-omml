@@ -920,28 +920,6 @@ def _symbol_signature(value: Any) -> list[str]:
     return []
 
 
-def _compare_special(expected: Any, actual: Any) -> bool:
-    if not isinstance(expected, dict):
-        return False
-    kind = expected.get("kind")
-    if kind == "operator_sequence":
-        return _operator_signature(actual) == list(expected.get("operators", [])) and _scientific_exponent(actual) == expected.get("scientific_exponent")
-    if kind == "unicode_operator_sequence":
-        symbols = {
-            "le": "<=",
-            "ge": ">=",
-            "ne": "!=",
-            "approx": "~",
-            "pm": "+/-",
-            "mp": "-/+",
-            "times": "*",
-            "cdot": "*",
-        }
-        expected_symbols = [symbols.get(str(item), str(item)) for item in expected.get("symbols", [])]
-        return _symbol_signature(actual) == expected_symbols
-    return False
-
-
 def _lossless_expected(expected: Any, source_latex: str | None) -> Any | None:
     """Expand W3A's compact sequence records when their source is available.
 
@@ -952,11 +930,13 @@ def _lossless_expected(expected: Any, source_latex: str | None) -> Any | None:
     shortcut while reusing the W3A parser itself.
     """
 
-    if source_latex is None or not isinstance(expected, dict) or expected.get("kind") not in {
+    if not isinstance(expected, dict) or expected.get("kind") not in {
         "operator_sequence",
         "unicode_operator_sequence",
     }:
         return expected
+    if not isinstance(source_latex, str) or not source_latex.strip():
+        return None
     source = source_latex
     for character, name in _UNICODE_ATOMS.items():
         source = source.replace(character, f"\\{name}")
@@ -980,7 +960,27 @@ def _lossless_expected(expected: Any, source_latex: str | None) -> Any | None:
     except (CanonicalError, TypeError):
         return None
     if isinstance(expanded, dict) and expanded.get("kind") == "delimited":
-        return expanded.get("body")
+        expanded = expanded.get("body")
+    if expected.get("kind") == "operator_sequence":
+        if (
+            _operator_signature(expanded) != list(expected["operators"])
+            or _scientific_exponent(expanded) != expected["scientific_exponent"]
+        ):
+            return None
+    else:
+        symbols = {
+            "le": "<=",
+            "ge": ">=",
+            "ne": "!=",
+            "approx": "~",
+            "pm": "+/-",
+            "mp": "-/+",
+            "times": "*",
+            "cdot": "*",
+        }
+        expected_symbols = [symbols.get(str(item), str(item)) for item in expected["symbols"]]
+        if _symbol_signature(expanded) != expected_symbols:
+            return None
     return expanded
 
 
@@ -1006,7 +1006,7 @@ def compare_omml_to_canonical(
     family = expected.get("kind") if isinstance(expected, dict) else "atom"
     comparison_expected = _lossless_expected(expected, source_latex)
     if comparison_expected is None:
-        reason = "canonical_source_cannot_be_expanded_for_semantic_validation"
+        reason = "canonical_source_missing_or_conflicts_with_compact_semantics"
         return SemanticResult(
             SemanticStatus.UNSUPPORTED.value,
             copy.deepcopy(expected),
@@ -1035,8 +1035,7 @@ def compare_omml_to_canonical(
             str(error),
             (str(error),),
         )
-    compact_match = comparison_expected is expected and _compare_special(expected, actual)
-    if canonical_equal(actual, comparison_expected) or compact_match:
+    if canonical_equal(actual, comparison_expected):
         return SemanticResult(
             SemanticStatus.PASS.value,
             copy.deepcopy(expected),

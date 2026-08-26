@@ -146,6 +146,7 @@ class SemanticBridgeTests(unittest.TestCase):
         result = compare_omml_to_canonical(
             operator_formula,
             canonicalize_formula("x >= y +/- 10^-3"),
+            source_latex="x >= y +/- 10^-3",
         )
         self.assertEqual(SemanticStatus.PASS.value, result.status)
 
@@ -197,6 +198,17 @@ class SemanticBridgeTests(unittest.TestCase):
             source_latex="x >= y +/- 1",
         )
         self.assertEqual(SemanticStatus.MISMATCH.value, result.status)
+
+        compact_expected = canonicalize_formula("x >= y +/- 10^-3")
+        without_source = compare_omml_to_canonical(altered_operand, compact_expected)
+        self.assertEqual(SemanticStatus.UNSUPPORTED.value, without_source.status)
+
+        conflicting_source = compare_omml_to_canonical(
+            altered_operand,
+            compact_expected,
+            source_latex="x <= y +/- 10^-3",
+        )
+        self.assertEqual(SemanticStatus.UNSUPPORTED.value, conflicting_source.status)
 
         altered_fraction = fraction(math_run("y"), math_run("x"))
         result = compare_omml_to_canonical(altered_fraction, canonicalize_formula(r"\frac{x}{y}"))
