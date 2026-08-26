@@ -12,11 +12,17 @@ Run this before inventory, generation, application, or staging:
 python3 scripts/preflight.py --json preflight.json
 ```
 
-The portable profile requires Python 3.10 through 3.12 and Pandoc 3.x with a
+The portable profile supports Python 3.10 through 3.12 and Pandoc 3.x with a
 working Markdown-to-JSON capability probe. A missing or incompatible Pandoc
 installation exits non-zero with an actionable check result. The report may
 show the companion `docx` skill and Microsoft Word as deferred or unavailable;
 those are explicit boundaries, not successful delivery gates.
+
+The supported Python range is a product compatibility contract, not a mandate
+to run a version matrix on every pull request. The normal GitHub CI samples the
+baseline environment documented below; broader compatibility may be checked
+locally or as a targeted release/maintenance verification when it is actually
+needed.
 
 ### Pin the reviewed companion guidance
 
@@ -198,8 +204,13 @@ logic, regenerate/revalidate the affected evidence before merge.
 
 ## CI boundary
 
-The GitHub Actions job runs the clean-checkout portable matrix and all
-repository fixtures, including synthetic tests of the representative acceptance
-policy. Native Microsoft Word open/no-repair and visual inspection remain a
-controlled Windows/manual acceptance gate. Portable ZIP, XML, LibreOffice,
-Pandoc, or synthetic Word observations cannot substitute for that native gate.
+GitHub Actions is deliberately a minimal portable smoke/regression check, not
+the acceptance or delivery engine. The normal PR workflow has one Ubuntu job,
+uses Python 3.11 and pinned Pandoc 3.1.11, and runs portable preflight, repository
+regressions, and source compilation. It does not run a Python matrix, duplicate
+the same work on branch pushes, publish artifacts, finalize candidates, deploy
+releases, or simulate Microsoft Word.
+
+Native Microsoft Word open/no-repair and visual inspection remain a controlled
+Windows/manual acceptance gate. Portable ZIP, XML, LibreOffice, Pandoc, or
+synthetic Word observations cannot substitute for that native gate.
