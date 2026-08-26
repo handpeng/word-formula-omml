@@ -60,6 +60,7 @@ SELECTED_IDS = (
     "display-omml",
     "interval",
 )
+ACCOUNTED_IDS = SELECTED_IDS + ("existing-omml",)
 APPLY_IDS = frozenset(SELECTED_IDS) - {"display-omml"}
 
 
@@ -82,10 +83,10 @@ def _expectation_rows() -> dict[str, dict]:
     if not isinstance(formulas, list):
         raise BundleError("W1 expectations have no formulas array")
     rows = {row.get("id"): row for row in formulas if isinstance(row, dict)}
-    missing = [occurrence_id for occurrence_id in SELECTED_IDS if occurrence_id not in rows]
+    missing = [occurrence_id for occurrence_id in ACCOUNTED_IDS if occurrence_id not in rows]
     if missing:
         raise BundleError(f"W1 expectations are missing representative occurrences: {missing}")
-    return {occurrence_id: rows[occurrence_id] for occurrence_id in SELECTED_IDS}
+    return {occurrence_id: rows[occurrence_id] for occurrence_id in ACCOUNTED_IDS}
 
 
 def _match_inventory(expectation: dict, inventory_rows: list[dict]) -> dict:
@@ -132,12 +133,12 @@ def _representative_manifest(source: Path):
     expectations = _expectation_rows()
     styles = _styles_root(source)
     rows: list[dict] = []
-    for occurrence_id in SELECTED_IDS:
+    for occurrence_id in ACCOUNTED_IDS:
         expectation = expectations[occurrence_id]
         row = _match_inventory(expectation, list(inventory.formulas))
         row["id"] = occurrence_id
         row["latex"] = expectation["latex"]
-        if occurrence_id == "display-omml":
+        if row.get("source_type") == SourceType.EXISTING_OMML.value:
             row["status"] = OccurrenceStatus.PRESERVED.value
             row["confidence"] = Confidence.AUTHORITATIVE.value
         else:

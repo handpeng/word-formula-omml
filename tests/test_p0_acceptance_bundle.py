@@ -49,6 +49,32 @@ class RepresentativeP0BundleTests(unittest.TestCase):
                 self.assertRegex(bundle["files"][required]["sha256"], r"^[0-9a-f]{64}$")
                 self.assertTrue((output / bundle["files"][required]["path"]).is_file())
 
+            manifest = json.loads((output / "p0-representative.manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                {
+                    "raw-latex",
+                    "plain-scripts",
+                    "plain-operators",
+                    "unicode-operators",
+                    "display-omml",
+                    "interval",
+                    "existing-omml",
+                },
+                {row["id"] for row in manifest["formulas"]},
+            )
+            self.assertEqual(
+                set(bundle["selected_occurrence_ids"]),
+                set(manifest["extensions"]["p0_representative_acceptance"]["selected_occurrence_ids"]),
+            )
+            self.assertEqual(
+                {"display-omml": "PRESERVED", "existing-omml": "PRESERVED"},
+                {
+                    row["id"]: row["status"]
+                    for row in manifest["formulas"]
+                    if row["source_type"] == "EXISTING_OMML"
+                },
+            )
+
             request = json.loads((output / "p0-acceptance-request.json").read_text(encoding="utf-8"))
             self.assertEqual(set(P0_VISUAL_RISK_FAMILIES), set(request["coverage"]))
             self.assertEqual({"clean", "redlined"}, {item["logical_id"] for item in request["artifacts"]})
