@@ -259,6 +259,35 @@ class AuditTests(unittest.TestCase):
             self.assertEqual("FAIL", report["story_content_drift"]["status"])
             self.assertTrue(any("unplanned story content drift" in error for error in report["errors"]))
 
+    def test_redlined_session_insertion_relocation_fails_closed(self):
+        audit = load_audit()
+        with tempfile.TemporaryDirectory() as name:
+            source, manifest, plan, staged, paths = self.make_case(Path(name), other_revision=True)
+
+            def move_session_insertion(root):
+                paragraphs = root.findall(".//w:body/w:p", {"w": W})
+                self.assertEqual(2, len(paragraphs))
+                insertion = next(
+                    child
+                    for child in paragraphs[0]
+                    if child.tag == q(W, "ins") and child.get(q(W, "author")) == plan.revision_author
+                )
+                paragraphs[0].remove(insertion)
+                paragraphs[1].append(insertion)
+
+            mutate_part(staged.artifact_paths["redlined"], "word/document.xml", move_session_insertion)
+            report = audit.audit_artifact(
+                paths["redlined"],
+                baseline=source,
+                manifest=manifest,
+                application_plan=plan,
+                job=staged.job,
+                artifact_id="redlined",
+                artifact_kind="redlined",
+            )
+            self.assertEqual("FAIL", report["status"])
+            self.assertTrue(any("outside its frozen location" in error for error in report["errors"]))
+
     def test_affected_paragraph_structure_drift_is_not_masked(self):
         audit = load_audit()
         for kind in ("redlined", "clean"):

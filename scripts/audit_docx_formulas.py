@@ -1153,7 +1153,9 @@ def _session_insertion_nodes(
         for action in plan.actions
         if action.decision == "APPLY" and action.insertion_revision_id is not None
     }
-    for _part, root in _story_roots(package, roots).items():
+    for part, root in _story_roots(package, roots).items():
+        parents = _parent_map(root)
+        blocks = _blocks(root)
         for wrapper in root.iter(QW("ins")):
             if _attribute(wrapper, W, "author") != plan.revision_author:
                 continue
@@ -1164,6 +1166,20 @@ def _session_insertion_nodes(
                 revision_id = -1
             action = expected.get(revision_id)
             if action is None:
+                continue
+            expected_part = action.package_part or "word/document.xml"
+            parent = parents.get(id(wrapper))
+            actual_paragraph = None
+            if parent is not None and parent.tag == QW("p"):
+                try:
+                    actual_paragraph = blocks.index(parent) + 1
+                except ValueError:
+                    actual_paragraph = None
+            if part != expected_part or actual_paragraph != action.paragraph:
+                errors.append(
+                    f"{action.occurrence_id}: session insertion is outside its frozen "
+                    f"location ({part} paragraph {actual_paragraph})"
+                )
                 continue
             equations = wrapper.findall(".//m:oMath", NS)
             if len(equations) != 1:
