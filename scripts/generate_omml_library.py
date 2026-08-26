@@ -81,6 +81,8 @@ def pandoc_api_version(executable: str) -> list[int]:
     diagnostics = _diagnostics(result)
     if result.returncode != 0:
         raise PandocError(f"Pandoc preflight exited {result.returncode}: {diagnostics}")
+    if result.stderr:
+        raise PandocError(f"Pandoc preflight emitted diagnostics: {diagnostics}")
     try:
         payload = json.loads(result.stdout)
     except (TypeError, json.JSONDecodeError) as error:
@@ -223,7 +225,7 @@ def main() -> int:
         ]
         if failures:
             details = "; ".join(
-                f"{entry['id']}: {entry['status']} ({entry['semantic']['reason']})"
+                f"{entry['id']}: {entry['status']} ({_entry_failure_reason(entry)})"
                 for entry in failures
             )
             raise GenerationError(
@@ -263,6 +265,13 @@ def main() -> int:
                     os.unlink(path)
                 except FileNotFoundError:
                     pass
+
+
+def _entry_failure_reason(entry: dict) -> str:
+    diagnostics = entry.get("generation", {}).get("diagnostics", [])
+    if diagnostics:
+        return str(diagnostics[0])
+    return str(entry.get("semantic", {}).get("reason", "semantic_validation_failed"))
 
 
 if __name__ == "__main__":

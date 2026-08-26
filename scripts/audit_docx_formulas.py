@@ -173,11 +173,18 @@ def audit_semantic_index(document: ET.Element, index_path: Path) -> tuple[list[d
     paragraphs = document.findall(".//w:body//w:p", NS)
     results: list[dict] = []
     errors: list[str] = []
+    seen_ids: set[str] = set()
     for position, entry in enumerate(index["formulas"], 1):
         if not isinstance(entry, dict):
             errors.append(f"semantic index formulas[{position}] is not an object")
             continue
         formula_id = entry.get("id", f"index-{position}")
+        if not isinstance(formula_id, str) or not formula_id.strip():
+            errors.append(f"semantic index formulas[{position}] has an invalid id")
+            formula_id = f"index-{position}"
+        elif formula_id in seen_ids:
+            errors.append(f"{formula_id}: duplicate semantic index id")
+        seen_ids.add(formula_id)
         expected = entry.get("canonical")
         paragraph_number = entry.get("equation_paragraph")
         if expected is None:
@@ -186,20 +193,33 @@ def audit_semantic_index(document: ET.Element, index_path: Path) -> tuple[list[d
         if not isinstance(paragraph_number, int) or paragraph_number < 1 or paragraph_number > len(paragraphs):
             errors.append(f"{formula_id}: equation paragraph {paragraph_number!r} is out of range")
             continue
+        marker_number = entry.get("marker_paragraph")
+        if not isinstance(marker_number, int) or marker_number < 1 or marker_number > len(paragraphs):
+            errors.append(f"{formula_id}: marker paragraph {marker_number!r} is out of range")
+        else:
+            marker_text = "".join(paragraphs[marker_number - 1].itertext()).strip()
+            if marker_text != f"OMML_ID:{formula_id}":
+                errors.append(f"{formula_id}: marker paragraph does not identify this formula")
+            if marker_number + 1 != paragraph_number:
+                errors.append(f"{formula_id}: marker and equation paragraphs are not adjacent")
         equations = paragraphs[paragraph_number - 1].findall(".//m:oMath", NS)
         if len(equations) != 1:
             errors.append(f"{formula_id}: equation paragraph has {len(equations)} m:oMath nodes, expected 1")
             continue
         actual_xml = ET.tostring(equations[0], encoding="utf-8")
         expected_hash = entry.get("omml_sha256")
-        if not isinstance(expected_hash, str):
-            errors.append(f"{formula_id}: semantic index is missing OMML candidate hash")
+        if not isinstance(expected_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_hash):
+            errors.append(f"{formula_id}: semantic index has an invalid or missing OMML candidate hash")
         elif expected_hash != hashlib.sha256(actual_xml).hexdigest():
             errors.append(f"{formula_id}: OMML candidate hash does not match semantic index")
+        source_latex = entry.get("latex")
+        if not isinstance(source_latex, str) or not source_latex.strip():
+            errors.append(f"{formula_id}: semantic index has no approved LaTeX source")
+            source_latex = None
         result = compare_omml_to_canonical(
             equations[0],
             expected,
-            source_latex=entry.get("latex"),
+            source_latex=source_latex,
         )
         serialized = {"id": formula_id, "equation_paragraph": paragraph_number, **result.to_dict()}
         results.append(serialized)

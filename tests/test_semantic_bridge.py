@@ -272,6 +272,10 @@ class SemanticBridgeTests(unittest.TestCase):
         formula = script(math_run("x"), sub=math_run("i"))
         document = ET.Element(q(W, "document"))
         body = ET.SubElement(document, q(W, "body"))
+        marker = ET.SubElement(body, q(W, "p"))
+        marker_run = ET.SubElement(marker, q(W, "r"))
+        marker_text = ET.SubElement(marker_run, q(W, "t"))
+        marker_text.text = "OMML_ID:F-001"
         paragraph = ET.SubElement(body, q(W, "p"))
         paragraph.append(omath(formula))
         equation_xml = ET.tostring(paragraph.findall(".//m:oMath", {"m": M})[0], encoding="utf-8")
@@ -287,7 +291,8 @@ class SemanticBridgeTests(unittest.TestCase):
                                 "id": "F-001",
                                 "latex": "x_i",
                                 "canonical": expected,
-                                "equation_paragraph": 1,
+                                "marker_paragraph": 1,
+                                "equation_paragraph": 2,
                                 "omml_sha256": hashlib.sha256(equation_xml).hexdigest(),
                             }
                         ],
