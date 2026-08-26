@@ -17,6 +17,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pandoc", default="pandoc")
     parser.add_argument("--companion-root", type=Path)
+    parser.add_argument(
+        "--companion-fingerprint",
+        help="reviewed SHA-256 fingerprint reported for SKILL.md + ooxml.md",
+    )
     parser.add_argument("--require-companion", action="store_true")
     parser.add_argument("--native-word", dest="native_word_command")
     parser.add_argument("--require-native-word", action="store_true")
@@ -27,6 +31,7 @@ def main() -> int:
             pandoc=args.pandoc,
             companion_root=args.companion_root,
             require_companion=args.require_companion,
+            companion_fingerprint=args.companion_fingerprint,
             native_word_command=args.native_word_command,
             require_native_word=args.require_native_word,
         )

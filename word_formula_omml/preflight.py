@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -20,6 +21,7 @@ PANDOC_MAX_EXCLUSIVE = (4, 0, 0)
 PANDOC_API_MIN = (1, 22)
 PANDOC_API_MAX_EXCLUSIVE = (2, 0)
 COMPANION_FILES = ("SKILL.md", "ooxml.md")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class PreflightError(RuntimeError):
@@ -146,23 +148,72 @@ def _check_pandoc(executable: str) -> dict[str, Any]:
     return result
 
 
-def _check_companion(root: str | Path | None, *, required: bool) -> dict[str, Any]:
+def _companion_identity(path: Path) -> tuple[dict[str, str], str] | tuple[None, str]:
+    hashes: dict[str, str] = {}
+    for name in COMPANION_FILES:
+        file_path = path / name
+        try:
+            data = file_path.read_bytes()
+        except OSError as error:
+            return None, f"cannot read companion file {file_path}: {error}"
+        if not data.strip():
+            return None, f"companion file is empty: {file_path}"
+        hashes[name] = hashlib.sha256(data).hexdigest()
+    payload = json.dumps(hashes, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashes, hashlib.sha256(payload).hexdigest()
+
+
+def _check_companion(
+    root: str | Path | None,
+    *,
+    required: bool,
+    expected_fingerprint: str | None,
+) -> dict[str, Any]:
+    must_match = required or expected_fingerprint is not None
     result: dict[str, Any] = {
         "name": "companion_docx_skill",
         "required": required,
-        "state": "FAIL" if required else "DEFERRED",
+        "state": "FAIL" if must_match else "DEFERRED",
+        "pinned": expected_fingerprint is not None,
     }
+    if expected_fingerprint is not None:
+        if not isinstance(expected_fingerprint, str) or not SHA256_RE.fullmatch(expected_fingerprint):
+            result["reason"] = "companion fingerprint must be a lowercase SHA-256 digest"
+            return result
+        result["expected_fingerprint"] = expected_fingerprint
     if root is None:
         result["reason"] = "set --companion-root to the reviewed companion docx skill directory"
         return result
     path = Path(root)
     result["root"] = str(path)
     if not path.is_dir():
+        result["state"] = "FAIL" if must_match else "UNAVAILABLE"
         result["reason"] = f"companion docx skill directory does not exist: {path}"
         return result
     missing = [name for name in COMPANION_FILES if not (path / name).is_file()]
     if missing:
+        result["state"] = "FAIL" if must_match else "UNAVAILABLE"
         result["reason"] = f"companion docx skill is missing required files: {missing}"
+        return result
+    identity, identity_error = _companion_identity(path)
+    if identity is None:
+        result["state"] = "FAIL" if must_match else "UNAVAILABLE"
+        result["reason"] = identity_error
+        return result
+    file_hashes, fingerprint = identity, identity_error
+    result["files"] = file_hashes
+    result["fingerprint"] = fingerprint
+    if expected_fingerprint is None:
+        result["state"] = "FAIL" if required else "UNPINNED"
+        result["reason"] = (
+            "required companion capability must be pinned to the reviewed fingerprint"
+            if required
+            else "companion files are present but not pinned to a reviewed fingerprint"
+        )
+        return result
+    if fingerprint != expected_fingerprint:
+        result["state"] = "FAIL"
+        result["reason"] = "companion docx skill fingerprint does not match the reviewed capability"
         return result
     result["state"] = "PASS"
     return result
@@ -191,6 +242,7 @@ class PreflightReport:
     checks: tuple[dict[str, Any], ...]
     require_companion: bool
     require_native_word: bool
+    companion_fingerprint: str | None
 
     @property
     def status(self) -> str:
@@ -214,6 +266,7 @@ class PreflightReport:
             "mutation_ready": self.mutation_ready,
             "require_companion": self.require_companion,
             "require_native_word": self.require_native_word,
+            "companion_fingerprint": self.companion_fingerprint,
             "checks": [dict(check) for check in self.checks],
         }
 
@@ -223,6 +276,7 @@ def run_preflight(
     pandoc: str = "pandoc",
     companion_root: str | Path | None = None,
     require_companion: bool = False,
+    companion_fingerprint: str | None = None,
     native_word_command: str | None = None,
     require_native_word: bool = False,
     python_version: Sequence[int] | None = None,
@@ -232,13 +286,18 @@ def run_preflight(
     checks = (
         _check_python(python_version),
         _check_pandoc(pandoc),
-        _check_companion(companion_root, required=require_companion),
+        _check_companion(
+            companion_root,
+            required=require_companion,
+            expected_fingerprint=companion_fingerprint,
+        ),
         _check_native_word(native_word_command, required=require_native_word),
     )
     return PreflightReport(
         checks=checks,
         require_companion=require_companion,
         require_native_word=require_native_word,
+        companion_fingerprint=companion_fingerprint,
     )
 
 
