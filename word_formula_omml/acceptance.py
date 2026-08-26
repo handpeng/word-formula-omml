@@ -83,9 +83,9 @@ def _candidate_records(job: FrozenJob, candidates: Mapping[str, str | Path]) -> 
     records: list[dict[str, Any]] = []
     for artifact in sorted(job.artifacts, key=lambda item: item["logical_id"]):
         logical_id = artifact["logical_id"]
-        if artifact.get("state") != ArtifactState.STAGED.value:
+        if artifact.get("state") != ArtifactState.STAGING.value:
             raise AcceptanceError(
-                f"artifact {logical_id!r} must remain STAGED before native Word acceptance"
+                f"artifact {logical_id!r} must remain STAGING before native Word acceptance"
             )
         structural = artifact.get("gates", {}).get(Gate.STRUCTURAL_AUDIT.value, {})
         if structural.get("state") != GateState.PASS.value:
