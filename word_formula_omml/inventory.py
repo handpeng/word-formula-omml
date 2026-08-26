@@ -27,6 +27,7 @@ from word_formula_omml.contract import (
     dump_manifest,
     load_manifest,
 )
+from word_formula_omml.style import snapshot_paragraph_style, snapshot_run_style
 
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -498,38 +499,6 @@ def _run_indices(paragraph: ET.Element) -> dict[int, int]:
     return {id(run): number for number, run in enumerate(paragraph.findall(".//w:r", NS), 1)}
 
 
-def _style_snapshot(run: ET.Element | None) -> dict:
-    if run is None:
-        return {}
-    properties = run.find("w:rPr", NS)
-    if properties is None:
-        return {}
-    result: dict[str, object] = {}
-    color = properties.find("w:color", NS)
-    size = properties.find("w:sz", NS)
-    fonts = properties.find("w:rFonts", NS)
-    character_style = properties.find("w:rStyle", NS)
-    if character_style is not None and _attribute(character_style, W, "val"):
-        result["character_style"] = _attribute(character_style, W, "val")
-    if color is not None and _attribute(color, W, "val"):
-        result["color"] = _attribute(color, W, "val")
-    if size is not None and _attribute(size, W, "val"):
-        result["size"] = _attribute(size, W, "val")
-    if properties.find("w:b", NS) is not None:
-        result["bold"] = True
-    if properties.find("w:i", NS) is not None:
-        result["italic"] = True
-    if fonts is not None:
-        font_values = {
-            key: _attribute(fonts, W, key)
-            for key in ("ascii", "hAnsi", "eastAsia", "cs")
-            if _attribute(fonts, W, key)
-        }
-        if font_values:
-            result["fonts"] = font_values
-    return result
-
-
 def _revision_ancestry_from_nodes(
     nodes: Iterable[ET.Element], *, omitted: bool = False
 ) -> list[dict]:
@@ -776,7 +745,11 @@ def _text_candidate(
     inside_revision, ancestry = _revision_metadata(refs, omitted_nodes=omitted_nodes)
     boundaries, run_index, run_start, run_end = _run_boundaries(refs, _run_indices(paragraph))
     relationship_ids = _relationship_ids(ref for ref in refs for ref in ref.ancestors)
-    style_values = [_style_snapshot(ref.run) for ref in refs if ref.run is not None]
+    style_values = [snapshot_run_style(ref.run) for ref in refs if ref.run is not None]
+    paragraph_snapshot = snapshot_paragraph_style(paragraph)
+    paragraph_context = {
+        key: value for key, value in paragraph_snapshot.items() if key != "paragraph_style"
+    }
     distinct_styles = []
     for style in style_values:
         if style not in distinct_styles:
@@ -786,6 +759,9 @@ def _text_candidate(
         style_snapshot = distinct_styles[0] if distinct_styles else {}
     else:
         style_snapshot = {"conflict": True, "runs": distinct_styles}
+    if paragraph_context:
+        style_snapshot = dict(style_snapshot)
+        style_snapshot["paragraph"] = paragraph_context
     status, reason = _status_for(
         match.source_type,
         deleted=deleted,

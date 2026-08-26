@@ -82,6 +82,26 @@ artifact's gates.
 - Derive color and emphasis from the source run or surrounding semantic block. Do not assign one global formula color.
 - Require one match unless the manifest deliberately distinguishes repeated occurrences with anchors and sequence numbers.
 
+## Style Resolution
+
+For a newly generated equation, `word_formula_omml.style` resolves each occurrence
+independently. Its field-level precedence is:
+
+1. explicit occurrence override (including a reviewed manifest `color`);
+2. source run snapshot;
+3. detectable semantic block context;
+4. resolved character style;
+5. resolved paragraph style;
+6. document defaults.
+
+The result is stored as `resolved_style` with the selected values and their
+provenance. Mathematical runs use the Word-compatible `Cambria Math` strategy;
+ordinary prose fonts are evidence only and are never copied into OMML. Color,
+size, highlight, underline, and mathematical emphasis remain occurrence-level.
+Display-only paragraph alignment and spacing are nested under the resolved
+style's `paragraph` object. A conflict or unsupported value produces an explicit
+review/unsupported result and is not eligible for automatic application.
+
 ## Review Before Application
 
 Confirm that each LaTeX expression expresses the intended mathematics, not merely a syntactic rewrite. Pay particular attention to:
