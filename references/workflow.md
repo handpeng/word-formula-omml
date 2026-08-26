@@ -37,6 +37,8 @@ Do not copy paragraph properties, styles, numbering, or relationships from the l
 
 Use a dedicated revision author such as `Codex Formula Remediation`. Allocate unique revision IDs higher than every existing `w:id` and enable revision tracking without disturbing existing settings.
 
+Build and persist a frozen application plan before producing any candidate, and freeze the requested artifact set in the accompanying #2 job. Together they bind the source SHA-256, manifest identity, exact occurrence anchors, expected match count, semantic template hash, resolved style, revision IDs, refusal decision, and deliverable identities. A changed source, manifest, template, anchor, or match count invalidates the plan/job.
+
 For a safe occurrence wholly contained in one ordinary `w:r`:
 
 1. Clone the original run for unchanged prefix and suffix text, retaining its `w:rPr`, RSID, whitespace behavior, and other valid attributes.
@@ -46,6 +48,8 @@ For a safe occurrence wholly contained in one ordinary `w:r`:
 5. Keep unchanged text outside both revision wrappers.
 
 When an occurrence spans runs, first prove that the intervening structure is semantically mergeable and contains no protected nodes. Otherwise stop. Never globally replace serialized XML or flatten a paragraph to reconstruct it.
+
+The current fast path intentionally refuses multi-run occurrences, protected containers/adjacency, display layout, and any existing revision intersection. Each refusal remains a terminal occurrence status in the plan.
 
 For formulas already inside another author's insertion/deletion, follow the DOCX skill's nested revision rules. Do not rewrite the other author's node or transfer its authorship.
 
@@ -65,6 +69,10 @@ Pack and validate the redlined version first. Make the clean version from a copy
 - preserve all `w:pPrChange` and `w:rPrChange` nodes unless explicitly in scope.
 
 Check the expected insertion/deletion count before accepting anything. A mismatch is a hard failure.
+
+Write only staging candidates at this point. Bind each candidate's exact content hash to its frozen artifact record, run every required gate independently, and mark the artifact `VALIDATED` only after all required gates pass. A missing, failed, `NOT_RUN`, stale, or cross-bound gate blocks the whole deliverable set.
+
+Promote the requested set only through the atomic set-finalization primitive after the #2 job derives `COMPLETE`. Redlined and clean paths are promoted together; a failure during promotion restores the previous final set. Partial output is never renamed or reported as complete.
 
 ## 7. Structural Audit
 
