@@ -353,8 +353,7 @@ def _style_tokens(tokens: list[_Token], style: str | None, literal: bool) -> lis
     return [_term({"kind": "styled", "style": style, "value": tokens[0].value})]
 
 
-def _parse_run(node: ET.Element) -> list[_Token]:
-    style, literal = _run_properties(node)
+def _run_text_nodes(node: ET.Element) -> list[ET.Element]:
     text_nodes: list[ET.Element] = []
     for child in node:
         namespace, local = _tag(child)
@@ -368,8 +367,13 @@ def _parse_run(node: ET.Element) -> list[_Token]:
             raise UnsupportedOMML(f"unsupported_math_run_child:{local}")
     if not text_nodes:
         raise SemanticError("OMML math run is missing m:t")
+    return text_nodes
+
+
+def _parse_run(node: ET.Element) -> list[_Token]:
+    style, literal = _run_properties(node)
     tokens: list[_Token] = []
-    for text_node in text_nodes:
+    for text_node in _run_text_nodes(node):
         tokens.extend(_tokenize_text(text_node.text or ""))
     return _style_tokens(tokens, style, literal)
 
@@ -623,16 +627,7 @@ def _parse_raw_run_interval(node: ET.Element) -> dict[str, Any] | None:
         style, literal = _run_properties(run)
         if style is not None or literal:
             return None
-        text_nodes = []
-        for child in run:
-            child_namespace, child_local = _tag(child)
-            if child_namespace != M or child_local not in {"rPr", "t"}:
-                return None
-            if child_local == "t":
-                text_nodes.append(child)
-        if not text_nodes:
-            return None
-        for text_node in text_nodes:
+        for text_node in _run_text_nodes(run):
             if text_node.text is None:
                 return None
             text_parts.append(text_node.text)
