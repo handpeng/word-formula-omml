@@ -23,6 +23,16 @@ from .contract import (
     set_occurrence_status,
     verify_frozen_job,
 )
+from .canonical import CanonicalError, canonical_equal, canonical_json, canonicalize, canonicalize_formula
+from .recovery import (
+    EVIDENCE_RANKS,
+    RecoveryError,
+    RecoveryResult,
+    Transformation,
+    recover_formula,
+    recover_manifest,
+    recovery_fingerprint,
+)
 
 __all__ = [
     "ArtifactState",
@@ -46,4 +56,16 @@ __all__ = [
     "set_artifact_content",
     "set_occurrence_status",
     "verify_frozen_job",
+    "CanonicalError",
+    "canonical_equal",
+    "canonical_json",
+    "canonicalize",
+    "canonicalize_formula",
+    "EVIDENCE_RANKS",
+    "RecoveryError",
+    "RecoveryResult",
+    "Transformation",
+    "recover_formula",
+    "recover_manifest",
+    "recovery_fingerprint",
 ]
