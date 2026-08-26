@@ -13,6 +13,7 @@ from word_formula_omml.contract import freeze_job, load_manifest
 
 from tests.fixtures.docx_fixture import (
     EXPECTATIONS_PATH,
+    CT,
     M,
     W,
     build_fixture_package,
@@ -21,7 +22,7 @@ from tests.fixtures.docx_fixture import (
 )
 
 
-NS = {"w": W, "m": "http://schemas.openxmlformats.org/officeDocument/2006/math"}
+NS = {"w": W, "m": M, "ct": CT}
 SOURCE_SHA = "a" * 64
 
 
@@ -50,6 +51,9 @@ class FixtureCorpusTests(unittest.TestCase):
         for name, data in package.items():
             if name.endswith(".xml") or name.endswith(".rels"):
                 ET.fromstring(data)
+        content_types = ET.fromstring(package["[Content_Types].xml"])
+        for override in content_types.findall("ct:Override", NS):
+            self.assertIn(override.get("PartName", "").lstrip("/"), package)
         document = ET.fromstring(package["word/document.xml"])
         expectations = fixture_expectations["package_invariants"]
         self.assertEqual(len(document.findall(".//w:drawing", NS)), expectations["drawings"])

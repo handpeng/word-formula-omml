@@ -420,7 +420,6 @@ def content_types_xml() -> bytes:
         "/word/footnotes.xml": "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml",
         "/word/endnotes.xml": "application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml",
         "/word/comments.xml": "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml",
-        "/word/theme/theme1.xml": "application/vnd.openxmlformats-officedocument.theme+xml",
         "/docProps/core.xml": "application/vnd.openxmlformats-package.core-properties+xml",
         "/docProps/app.xml": "application/vnd.openxmlformats-officedocument.extended-properties+xml",
     }
