@@ -338,6 +338,8 @@ def _literal_text(tokens: Iterable[_Token]) -> str:
 
 def _style_tokens(tokens: list[_Token], style: str | None, literal: bool) -> list[_Token]:
     if literal:
+        if style is not None:
+            raise UnsupportedOMML("combined_math_style_not_supported")
         return [_term({"kind": "roman", "text": _literal_text(tokens)})]
     if style is None:
         return tokens
@@ -748,6 +750,89 @@ def _validate_canonical(value: Any, path: str = "canonical") -> None:
     kind = value.get("kind")
     if not isinstance(kind, str) or kind not in SUPPORTED_CANONICAL_KINDS:
         raise UnsupportedOMML(f"unsupported_canonical_kind:{kind!r}")
+    fields = {
+        "identifier": {"text"},
+        "sequence": {"items"},
+        "implicit_product": {"factors"},
+        "script": {"base", "subscript", "superscript"},
+        "grouped_exponent": {"exponent"},
+        "fraction": {"numerator", "denominator"},
+        "root": {"radicand", "index"},
+        "delimited": {"left", "right", "body"},
+        "interval": {"left", "right", "lower", "upper"},
+        "relation": {"operator", "left", "right"},
+        "addition": {"left", "right"},
+        "subtraction": {"left", "right"},
+        "binary_operator": {"operator", "left", "right"},
+        "operator_sequence": {"operators", "scientific_exponent"},
+        "unicode_operator_sequence": {"symbols"},
+        "operator": {"value"},
+        "function": {"name"},
+        "function_call": {"name", "argument"},
+        "styled": {"style", "value"},
+        "roman": {"text"},
+        "text": {"text"},
+        "accent": {"accent", "base"},
+        "unary_plus": {"operand"},
+        "unary_minus": {"operand"},
+    }.get(kind, set())
+    unknown_fields = set(value) - (fields | {"kind"})
+    if unknown_fields:
+        raise UnsupportedOMML(f"unsupported_canonical_fields:{path}:{sorted(unknown_fields)}")
+    required = {
+        "identifier": {"text"},
+        "sequence": {"items"},
+        "implicit_product": {"factors"},
+        "script": {"base"},
+        "grouped_exponent": {"exponent"},
+        "fraction": {"numerator", "denominator"},
+        "root": {"radicand"},
+        "delimited": {"left", "right", "body"},
+        "interval": {"left", "right", "lower", "upper"},
+        "relation": {"operator", "left", "right"},
+        "addition": {"left", "right"},
+        "subtraction": {"left", "right"},
+        "binary_operator": {"operator", "left", "right"},
+        "operator_sequence": {"operators", "scientific_exponent"},
+        "unicode_operator_sequence": {"symbols"},
+        "operator": {"value"},
+        "function": {"name"},
+        "function_call": {"name", "argument"},
+        "styled": {"style", "value"},
+        "roman": {"text"},
+        "text": {"text"},
+        "accent": {"accent", "base"},
+        "unary_plus": {"operand"},
+        "unary_minus": {"operand"},
+    }.get(kind, set())
+    missing = sorted(required - set(value))
+    if missing:
+        raise UnsupportedOMML(f"canonical_missing_fields:{path}:{missing}")
+    if kind in {"sequence", "implicit_product"}:
+        items = value["items"] if kind == "sequence" else value["factors"]
+        if not isinstance(items, list) or not items:
+            raise UnsupportedOMML(f"canonical_{kind}_must_be_nonempty:{path}")
+    if kind == "script" and "subscript" not in value and "superscript" not in value:
+        raise UnsupportedOMML(f"canonical_script_has_no_script:{path}")
+    if kind == "operator_sequence":
+        operators = value["operators"]
+        if not isinstance(operators, list) or not operators or not all(isinstance(item, str) for item in operators):
+            raise UnsupportedOMML(f"canonical_operator_sequence_has_invalid_operators:{path}")
+        if value["scientific_exponent"] is not None and not isinstance(value["scientific_exponent"], str):
+            raise UnsupportedOMML(f"canonical_operator_sequence_has_invalid_exponent:{path}")
+    if kind == "unicode_operator_sequence":
+        symbols = value["symbols"]
+        if not isinstance(symbols, list) or not symbols or not all(isinstance(item, str) for item in symbols):
+            raise UnsupportedOMML(f"canonical_unicode_operator_sequence_has_invalid_symbols:{path}")
+    if kind == "interval":
+        if value["left"] not in {"open", "closed"} or value["right"] not in {"open", "closed"}:
+            raise UnsupportedOMML(f"canonical_interval_has_invalid_boundary:{path}")
+        if not all(isinstance(value[field], str) and value[field] for field in ("lower", "upper")):
+            raise UnsupportedOMML(f"canonical_interval_has_invalid_bounds:{path}")
+    if kind == "styled" and value["style"] not in {"bold", "italic", "calligraphic", "blackboard"}:
+        raise UnsupportedOMML(f"canonical_styled_value_is_unsupported:{path}")
+    if kind == "accent" and value["accent"] not in {"hat", "bar", "vec", "underline", "dot", "ddot"}:
+        raise UnsupportedOMML(f"canonical_accent_value_is_unsupported:{path}")
     for key, child in value.items():
         if key != "kind":
             if isinstance(child, (dict, str)):

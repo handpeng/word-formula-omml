@@ -228,6 +228,13 @@ class SemanticBridgeTests(unittest.TestCase):
         unknown_canonical = compare_omml_to_canonical(omath(math_run("x")), {"kind": "matrix", "rows": []})
         self.assertEqual(SemanticStatus.UNSUPPORTED.value, unknown_canonical.status)
 
+        incomplete_sequence = compare_omml_to_canonical(omath(math_run("x")), {"kind": "operator_sequence"})
+        self.assertEqual(SemanticStatus.UNSUPPORTED.value, incomplete_sequence.status)
+
+        conflicting_style = math_run("x", style="b", literal=True)
+        result = compare_omml_to_canonical(omath(conflicting_style), "x")
+        self.assertEqual(SemanticStatus.UNSUPPORTED.value, result.status)
+
     def test_comparison_and_fingerprints_are_deterministic(self):
         formula = omath(script(math_run("x"), sub=math_run("i"), sup=math_run("2")))
         expected = canonicalize_formula("x_i^2")
