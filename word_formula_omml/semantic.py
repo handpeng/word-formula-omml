@@ -56,7 +56,7 @@ SEMANTIC_SUPPORT_MATRIX: dict[str, dict[str, Any]] = {
     "fraction": {"canonical_kinds": ["fraction"], "omml_tags": ["f"]},
     "root": {"canonical_kinds": ["root"], "omml_tags": ["rad"]},
     "delimited": {"canonical_kinds": ["delimited"], "omml_tags": ["d"]},
-    "interval": {"canonical_kinds": ["interval"], "omml_tags": ["d"]},
+    "interval": {"canonical_kinds": ["interval"], "omml_tags": ["d", "r", "oMath"]},
     "relation": {"canonical_kinds": ["relation"], "omml_tags": ["r", "oMath"]},
     "addition": {"canonical_kinds": ["addition"], "omml_tags": ["r", "oMath"]},
     "subtraction": {"canonical_kinds": ["subtraction"], "omml_tags": ["r", "oMath"]},
@@ -149,6 +149,11 @@ _ADDITIVE = {"+", "-", "+/-", "-/+"}
 _MULTIPLICATIVE = {"*", "/"}
 _OPERATORS = _RELATIONS | _ADDITIVE | _MULTIPLICATIVE
 _FUNCTION_NAMES = {"sin", "cos", "tan", "log", "ln", "exp"}
+_NUMERIC_LITERAL = r"-?(?:\d+(?:\.\d*)?|\.\d+)"
+_NUMERIC_LITERAL_RE = re.compile(rf"^{_NUMERIC_LITERAL}$")
+_RAW_NUMERIC_INTERVAL_RE = re.compile(
+    rf"^[ \t]*([\(\[])[ \t]*({_NUMERIC_LITERAL})[ \t]*,[ \t]*({_NUMERIC_LITERAL})[ \t]*([\)\]])[ \t]*$"
+)
 
 
 def _tag(node: ET.Element) -> tuple[str, str]:
@@ -348,8 +353,7 @@ def _style_tokens(tokens: list[_Token], style: str | None, literal: bool) -> lis
     return [_term({"kind": "styled", "style": style, "value": tokens[0].value})]
 
 
-def _parse_run(node: ET.Element) -> list[_Token]:
-    style, literal = _run_properties(node)
+def _run_text_nodes(node: ET.Element) -> list[ET.Element]:
     text_nodes: list[ET.Element] = []
     for child in node:
         namespace, local = _tag(child)
@@ -363,8 +367,13 @@ def _parse_run(node: ET.Element) -> list[_Token]:
             raise UnsupportedOMML(f"unsupported_math_run_child:{local}")
     if not text_nodes:
         raise SemanticError("OMML math run is missing m:t")
+    return text_nodes
+
+
+def _parse_run(node: ET.Element) -> list[_Token]:
+    style, literal = _run_properties(node)
     tokens: list[_Token] = []
-    for text_node in text_nodes:
+    for text_node in _run_text_nodes(node):
         tokens.extend(_tokenize_text(text_node.text or ""))
     return _style_tokens(tokens, style, literal)
 
@@ -576,6 +585,58 @@ def _scalar(value: Any) -> str | None:
     return None
 
 
+def _numeric_interval_semantics(
+    left: str | None,
+    right: str | None,
+    lower: Any,
+    upper: Any,
+) -> dict[str, Any] | None:
+    lower_text = _scalar(lower)
+    upper_text = _scalar(upper)
+    if (
+        left not in {"(", "["}
+        or right not in {")", "]"}
+        or lower_text is None
+        or upper_text is None
+        or _NUMERIC_LITERAL_RE.fullmatch(lower_text) is None
+        or _NUMERIC_LITERAL_RE.fullmatch(upper_text) is None
+    ):
+        return None
+    return {
+        "kind": "interval",
+        "left": "open" if left == "(" else "closed",
+        "right": "open" if right == ")" else "closed",
+        "lower": lower_text,
+        "upper": upper_text,
+    }
+
+
+def _parse_raw_run_interval(node: ET.Element) -> dict[str, Any] | None:
+    """Parse only Pandoc's plain-run projection of a numeric interval."""
+
+    if _local(node) != "oMath":
+        return None
+    runs = list(node)
+    if not runs:
+        return None
+    text_parts: list[str] = []
+    for run in runs:
+        namespace, local = _tag(run)
+        if namespace != M or local != "r":
+            return None
+        style, literal = _run_properties(run)
+        if style is not None or literal:
+            return None
+        for text_node in _run_text_nodes(run):
+            if text_node.text is None:
+                return None
+            text_parts.append(text_node.text)
+    match = _RAW_NUMERIC_INTERVAL_RE.fullmatch("".join(text_parts))
+    if match is None:
+        return None
+    return _numeric_interval_semantics(match.group(1), match.group(4), match.group(2), match.group(3))
+
+
 def _parse_delimiter(node: ET.Element) -> dict[str, Any]:
     _ensure_children(node, {"dPr", "e"})
     properties = _one(node, "dPr", required=False)
@@ -596,16 +657,9 @@ def _parse_delimiter(node: ET.Element) -> dict[str, Any]:
     if len(comma_positions) == 1 and left in "([" and right in ")]":
         comma_index = comma_positions[0]
         if comma_index == 1 and comma_index + 1 == len(tokens) - 1:
-            lower = _scalar(tokens[0].value)
-            upper = _scalar(tokens[-1].value)
-            if lower is not None and upper is not None and re.fullmatch(r"-?(?:\d+(?:\.\d*)?|\.\d+)", lower) and re.fullmatch(r"-?(?:\d+(?:\.\d*)?|\.\d+)", upper):
-                return {
-                    "kind": "interval",
-                    "left": "open" if left == "(" else "closed",
-                    "right": "open" if right == ")" else "closed",
-                    "lower": lower,
-                    "upper": upper,
-                }
+            interval = _numeric_interval_semantics(left, right, tokens[0].value, tokens[-1].value)
+            if interval is not None:
+                return interval
     if comma_positions:
         raise UnsupportedOMML("comma_delimiter_body_not_supported")
     body = _ExpressionParser(tokens).parse()
@@ -685,7 +739,12 @@ def _parse_expression(node: ET.Element) -> Any:
         if any(token.kind == "comma" for token in tokens):
             raise UnsupportedOMML("comma_outside_delimiter")
         return _ExpressionParser(tokens).parse()
-    if local in {"e", "num", "den", "sub", "sup", "deg", "fName", "oMath"}:
+    if local == "oMath":
+        raw_interval = _parse_raw_run_interval(node)
+        if raw_interval is not None:
+            return raw_interval
+        return _parse_sequence(node)
+    if local in {"e", "num", "den", "sub", "sup", "deg", "fName"}:
         return _parse_sequence(node)
     if local == "f":
         return _parse_fraction(node)
