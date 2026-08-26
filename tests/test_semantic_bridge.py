@@ -329,6 +329,78 @@ class SemanticBridgeTests(unittest.TestCase):
             self.assertEqual(SemanticStatus.MISMATCH.value, results[0]["status"])
             self.assertTrue(any("candidate hash" in error for error in errors))
 
+    def test_audit_rejects_incomplete_semantic_index_identity(self):
+        root_path = Path(__file__).resolve().parents[1]
+        audit = load_script(str(root_path / "scripts" / "audit_docx_formulas.py"))
+        with tempfile.TemporaryDirectory() as directory:
+            index = Path(directory) / "library.index.json"
+            index.write_text(
+                json.dumps({"schema_version": True, "formulas": [{"canonical": "x"}]}),
+                encoding="utf-8",
+            )
+            document = ET.Element(q(W, "document"))
+            with self.assertRaises(RuntimeError):
+                audit.audit_semantic_index(document, index)
+
+            index.write_text(
+                json.dumps({"schema_version": 1, "formulas": [{"canonical": "x"}]}),
+                encoding="utf-8",
+            )
+            body = ET.SubElement(document, q(W, "body"))
+            marker = ET.SubElement(body, q(W, "p"))
+            marker_run = ET.SubElement(marker, q(W, "r"))
+            marker_text = ET.SubElement(marker_run, q(W, "t"))
+            marker_text.text = "OMML_ID:index-1"
+            equation = ET.SubElement(body, q(W, "p"))
+            equation.append(omath(math_run("x")))
+            equation_xml = ET.tostring(equation.findall(".//m:oMath", {"m": M})[0], encoding="utf-8")
+            index.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "formulas": [
+                            {
+                                "canonical": "x",
+                                "marker_paragraph": 1,
+                                "equation_paragraph": 2,
+                                "omml_sha256": hashlib.sha256(equation_xml).hexdigest(),
+                                "latex": "x",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            results, errors = audit.audit_semantic_index(document, index)
+            self.assertEqual(SemanticStatus.PASS.value, results[0]["status"])
+            self.assertTrue(any("invalid id" in error for error in errors))
+
+    def test_generator_publication_rolls_back_on_sidecar_failure(self):
+        root_path = Path(__file__).resolve().parents[1]
+        generator = load_script(str(root_path / "scripts" / "generate_omml_library.py"))
+        with tempfile.TemporaryDirectory() as directory:
+            directory_path = Path(directory)
+            output = directory_path / "library.docx"
+            index = directory_path / "library.index.json"
+            staging_output = directory_path / "staging.docx"
+            staging_index = directory_path / "staging.json"
+            output.write_bytes(b"previous-library")
+            index.write_bytes(b"previous-index")
+            staging_output.write_bytes(b"new-library")
+            staging_index.write_bytes(b"new-index")
+            real_replace = generator.os.replace
+
+            def fail_index(source, target):
+                if Path(source) == staging_index and Path(target) == index:
+                    raise OSError("simulated sidecar publication failure")
+                return real_replace(source, target)
+
+            with mock.patch.object(generator.os, "replace", side_effect=fail_index):
+                with self.assertRaises(OSError):
+                    generator._publish_pair(staging_output, staging_index, output, index)
+            self.assertEqual(b"previous-library", output.read_bytes())
+            self.assertEqual(b"previous-index", index.read_bytes())
+
     def test_pandoc_preflight_failure_is_actionable(self):
         root_path = Path(__file__).resolve().parents[1]
         generator = load_script(str(root_path / "scripts" / "generate_omml_library.py"))

@@ -186,12 +186,80 @@ def inspect_library(
     return entries
 
 
+def _backup_target(target: Path) -> str | None:
+    if not os.path.lexists(target):
+        return None
+    descriptor, backup = tempfile.mkstemp(
+        dir=target.parent,
+        prefix=f".{target.name}.",
+        suffix=".previous",
+    )
+    os.close(descriptor)
+    try:
+        os.replace(target, backup)
+    except BaseException:
+        try:
+            os.unlink(backup)
+        except FileNotFoundError:
+            pass
+        raise
+    return backup
+
+
+def _publish_pair(
+    temporary_output: Path,
+    temporary_index: Path,
+    output: Path,
+    index: Path,
+) -> None:
+    """Publish the library and sidecar as a recoverable pair.
+
+    There is no portable atomic rename for two independent paths.  Moving
+    previous targets aside first lets a failure during the second replacement
+    restore the last complete pair instead of leaving mixed generations.
+    """
+
+    if output.resolve() == index.resolve():
+        raise GenerationError("library output and semantic index must be different paths")
+    targets = ((output, temporary_output), (index, temporary_index))
+    backups: dict[Path, str | None] = {}
+    replaced: list[Path] = []
+    try:
+        for target, _staging in targets:
+            backups[target] = _backup_target(target)
+        os.replace(temporary_output, output)
+        replaced.append(output)
+        os.replace(temporary_index, index)
+        replaced.append(index)
+    except BaseException:
+        for target in reversed(replaced):
+            backup = backups.get(target)
+            if backup is None:
+                try:
+                    os.unlink(target)
+                except FileNotFoundError:
+                    pass
+            elif os.path.lexists(backup):
+                os.replace(backup, target)
+                backups[target] = None
+        for target, backup in backups.items():
+            if backup is not None and os.path.lexists(backup):
+                os.replace(backup, target)
+        raise
+    else:
+        for backup in backups.values():
+            if backup is not None:
+                os.unlink(backup)
+
+
 def main() -> int:
     args = parse_args()
     formulas = load_formulas(args.manifest, include_semantics=True)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     index_path = args.index or args.output.with_suffix(".index.json")
     index_path.parent.mkdir(parents=True, exist_ok=True)
+    if args.output.resolve() == index_path.resolve():
+        raise GenerationError("library output and semantic index must be different paths")
     ast = build_ast(formulas, pandoc_api_version(args.pandoc))
     temporary_output: str | None = None
     temporary_index: str | None = None
@@ -252,9 +320,8 @@ def main() -> int:
                 ensure_ascii=False,
             )
             stream.write("\n")
-        os.replace(temporary_output, args.output)
+        _publish_pair(Path(temporary_output), Path(temporary_index), args.output, index_path)
         temporary_output = None
-        os.replace(temporary_index, index_path)
         temporary_index = None
         print(f"generated={len(entries)} library={args.output} index={index_path}")
         return 0

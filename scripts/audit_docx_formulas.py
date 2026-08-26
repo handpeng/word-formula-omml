@@ -168,8 +168,11 @@ def audit_semantic_index(document: ET.Element, index_path: Path) -> tuple[list[d
         raise RuntimeError(f"cannot load semantic index {index_path}: {error}") from error
     if not isinstance(index, dict) or not isinstance(index.get("formulas"), list):
         raise RuntimeError("semantic index must contain a formulas array")
-    if index.get("schema_version") != 1:
+    schema_version = index.get("schema_version")
+    if not isinstance(schema_version, int) or isinstance(schema_version, bool) or schema_version != 1:
         raise RuntimeError(f"unsupported semantic index schema_version {index.get('schema_version')!r}")
+    if not index["formulas"]:
+        raise RuntimeError("semantic index formulas array must not be empty")
     paragraphs = document.findall(".//w:body//w:p", NS)
     results: list[dict] = []
     errors: list[str] = []
@@ -178,7 +181,7 @@ def audit_semantic_index(document: ET.Element, index_path: Path) -> tuple[list[d
         if not isinstance(entry, dict):
             errors.append(f"semantic index formulas[{position}] is not an object")
             continue
-        formula_id = entry.get("id", f"index-{position}")
+        formula_id = entry.get("id")
         if not isinstance(formula_id, str) or not formula_id.strip():
             errors.append(f"semantic index formulas[{position}] has an invalid id")
             formula_id = f"index-{position}"
@@ -190,11 +193,21 @@ def audit_semantic_index(document: ET.Element, index_path: Path) -> tuple[list[d
         if expected is None:
             errors.append(f"{formula_id}: semantic index has no expected canonical value")
             continue
-        if not isinstance(paragraph_number, int) or paragraph_number < 1 or paragraph_number > len(paragraphs):
+        if (
+            not isinstance(paragraph_number, int)
+            or isinstance(paragraph_number, bool)
+            or paragraph_number < 1
+            or paragraph_number > len(paragraphs)
+        ):
             errors.append(f"{formula_id}: equation paragraph {paragraph_number!r} is out of range")
             continue
         marker_number = entry.get("marker_paragraph")
-        if not isinstance(marker_number, int) or marker_number < 1 or marker_number > len(paragraphs):
+        if (
+            not isinstance(marker_number, int)
+            or isinstance(marker_number, bool)
+            or marker_number < 1
+            or marker_number > len(paragraphs)
+        ):
             errors.append(f"{formula_id}: marker paragraph {marker_number!r} is out of range")
         else:
             marker_text = "".join(paragraphs[marker_number - 1].itertext()).strip()
