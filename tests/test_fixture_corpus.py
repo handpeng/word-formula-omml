@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import posixpath
+import struct
 import tempfile
 import unittest
 import zipfile
@@ -123,6 +124,82 @@ class FixtureCorpusTests(unittest.TestCase):
         }
         for part, local_name in story_roots.items():
             self.assertEqual(ET.fromstring(package[part]).tag, f"{{{W}}}{local_name}")
+
+    def test_legacy_equation_payload_is_a_structurally_valid_cfb(self):
+        payload = build_fixture_package()["word/embeddings/oleObject1.bin"]
+        self.assertEqual(payload[:8], bytes.fromhex("d0cf11e0a1b11ae1"))
+        self.assertEqual(len(payload), 6 * 512)
+        self.assertNotIn(b"synthetic-legacy-equation-object-v1", payload)
+
+        header = struct.unpack_from("<HHHHHHLLLLLLLLLL", payload, 24)
+        self.assertEqual(header[:5], (0x003E, 3, 0xFFFE, 9, 6))
+        self.assertEqual(header[5:7], (0, 0))
+        self.assertEqual(header[7:10], (0, 1, 2))
+        self.assertEqual(header[10:14], (0, 0x1000, 1, 1))
+        self.assertEqual(header[14:], (0xFFFFFFFE, 0))
+
+        fat = struct.unpack_from("<128I", payload, 512)
+        self.assertEqual(fat[:5], (0xFFFFFFFD, 0xFFFFFFFE, 3, 0xFFFFFFFE, 0xFFFFFFFE))
+        mini_fat = struct.unpack_from("<128I", payload, 1024)
+        self.assertEqual(mini_fat[:6], (0xFFFFFFFE, 2, 0xFFFFFFFE, 0xFFFFFFFE, 5, 0xFFFFFFFE))
+
+        directory_offset = (header[9] + 1) * 512
+        entries = {}
+        for index in range(5):
+            offset = directory_offset + index * 128
+            name_length = struct.unpack_from("<H", payload, offset + 64)[0]
+            name = payload[offset : offset + name_length - 2].decode("utf-16-le")
+            entries[name] = {
+                "type": payload[offset + 66],
+                "color": payload[offset + 67],
+                "left": struct.unpack_from("<I", payload, offset + 68)[0],
+                "right": struct.unpack_from("<I", payload, offset + 72)[0],
+                "child": struct.unpack_from("<I", payload, offset + 76)[0],
+                "clsid": payload[offset + 80 : offset + 96],
+                "start": struct.unpack_from("<I", payload, offset + 116)[0],
+                "size": struct.unpack_from("<I", payload, offset + 120)[0],
+            }
+
+        self.assertEqual(
+            set(entries),
+            {"Root Entry", "\x01Ole", "\x01CompObj", "\x03ObjInfo", "Equation Native"},
+        )
+        self.assertEqual(entries["Root Entry"]["type"], 5)
+        self.assertEqual(entries["Root Entry"]["color"], 1)
+        self.assertEqual(entries["Root Entry"]["child"], 1)
+        self.assertEqual(entries["Root Entry"]["start"], 4)
+        self.assertEqual(entries["Root Entry"]["size"], 384)
+        self.assertEqual(
+            entries["Root Entry"]["clsid"],
+            bytes.fromhex("02ce020000000000c000000000000046"),
+        )
+        self.assertEqual(entries["\x01Ole"]["color"], 1)
+        self.assertEqual(entries["\x01Ole"]["left"], 2)
+        self.assertEqual(entries["\x01Ole"]["right"], 3)
+        self.assertEqual(entries["\x01CompObj"]["color"], 1)
+        self.assertEqual(entries["\x01CompObj"]["left"], 0xFFFFFFFF)
+        self.assertEqual(entries["\x01CompObj"]["right"], 0xFFFFFFFF)
+        self.assertEqual(entries["\x03ObjInfo"]["color"], 1)
+        self.assertEqual(entries["\x03ObjInfo"]["right"], 4)
+        self.assertEqual(entries["Equation Native"]["color"], 0)
+
+        for index in range(5, 8):
+            offset = directory_offset + index * 128
+            self.assertEqual(payload[offset : offset + 64], bytes(64))
+            self.assertEqual(
+                struct.unpack_from("<HBBIII", payload, offset + 64),
+                (0, 0, 0, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF),
+            )
+            self.assertEqual(struct.unpack_from("<II", payload, offset + 116), (0, 0))
+
+        mini_offset = (entries["Root Entry"]["start"] + 1) * 512
+        mini_stream = payload[mini_offset : mini_offset + entries["Root Entry"]["size"]]
+        self.assertIn(b"Microsoft Equation 3.0\x00", mini_stream)
+        self.assertIn(b"Equation.3\x00", mini_stream)
+        native = entries["Equation Native"]
+        native_bytes = mini_stream[native["start"] * 64 : native["start"] * 64 + native["size"]]
+        self.assertEqual(native_bytes[:4], b"\x1c\x00\x00\x00")
+        self.assertEqual(len(native_bytes), 125)
 
     def test_expected_candidate_sources_are_present_in_the_declared_story(self):
         package = build_fixture_package()
