@@ -16,6 +16,7 @@ from word_formula_omml.applicator import (
 )
 from word_formula_omml.gates import (
     GatePolicyError,
+    P0_VISUAL_RISK_FAMILIES,
     assert_p0_ready,
     bind_native_word_evidence,
     bind_structural_audit_evidence,
@@ -98,7 +99,13 @@ def bind_native_pass(job, paths):
             word_version="16.0-test",
             validation_mode="manual",
             environment={"platform": "fixture-test", "runner": "controlled"},
-            details={"fixture": True},
+            recorded_at="2026-08-26T14:00:00-07:00",
+            details={
+                "fixture": True,
+                "representative_acceptance": True,
+                "acceptance_request_id": "p0-request-00000000000000000000000000000000",
+                "visual_checks": {family: "PASS" for family in P0_VISUAL_RISK_FAMILIES},
+            },
         )
     return job
 
@@ -130,6 +137,7 @@ class P0GateTests(unittest.TestCase):
                     visual_inspection="PASS",
                     word_version="16.0-test",
                     environment={"platform": "fixture-test"},
+                    recorded_at="2026-08-26T14:00:00-07:00",
                 )
             with self.assertRaisesRegex(GatePolicyError, "cannot PASS"):
                 bind_native_word_evidence(
@@ -196,6 +204,7 @@ class P0GateTests(unittest.TestCase):
                 visual_inspection="PASS",
                 word_version="16.0-test",
                 environment={"platform": "fixture-test"},
+                recorded_at="2026-08-26T14:00:00-07:00",
                 reason="fixture repair prompt",
             )
             self.assertEqual("FAIL", evaluate_p0_gate(job)["state"])
@@ -240,6 +249,27 @@ class P0GateTests(unittest.TestCase):
             with self.assertRaisesRegex(GatePolicyError, "P0 production-pilot gate"):
                 assert_p0_ready(validated)
 
+    def test_native_pass_without_representative_acceptance_cannot_pass_p0(self):
+        with tempfile.TemporaryDirectory() as name:
+            source, manifest, plan, staged, paths = stage_case(Path(name))
+            job = bind_structural_reports(source, manifest, plan, staged, paths)
+            job = bind_native_word_evidence(
+                job,
+                "redlined",
+                paths["redlined"],
+                state="PASS",
+                open_no_repair=True,
+                visual_inspection="PASS",
+                word_version="16.0-test",
+                validation_mode="manual",
+                environment={"platform": "fixture-test"},
+                recorded_at="2026-08-26T14:00:00-07:00",
+                details={"fixture": True},
+            )
+            report = evaluate_p0_gate(job)
+            self.assertEqual("FAIL", report["state"])
+            self.assertTrue(any("representative P0 acceptance" in error for error in report["errors"]))
+
     def test_candidate_mutation_stales_audit_and_native_evidence_before_finalization(self):
         with tempfile.TemporaryDirectory() as name:
             source, manifest, plan, staged, paths = stage_case(Path(name))
@@ -260,6 +290,11 @@ class P0GateTests(unittest.TestCase):
             serialized = job.to_dict()
             clean = next(item for item in serialized["artifacts"] if item["logical_id"] == "clean")
             clean["gates"]["NATIVE_WORD"]["evidence"]["details"]["open_no_repair"] = False
+            self.assertEqual("FAIL", evaluate_p0_gate(serialized)["state"])
+
+            serialized = job.to_dict()
+            clean = next(item for item in serialized["artifacts"] if item["logical_id"] == "clean")
+            clean["gates"]["NATIVE_WORD"]["evidence"]["recorded_at"] = "2026-08-27T00:00:00Z"
             self.assertEqual("FAIL", evaluate_p0_gate(serialized)["state"])
 
             serialized = job.to_dict()

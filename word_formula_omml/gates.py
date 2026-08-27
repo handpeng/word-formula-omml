@@ -9,7 +9,9 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -30,10 +32,37 @@ P0_REQUIRED_GATES = frozenset({Gate.STRUCTURAL_AUDIT.value, Gate.NATIVE_WORD.val
 P0_GATE_SCHEMA_VERSION = 1
 NATIVE_WORD_VALIDATION_MODES = frozenset({"manual", "automated"})
 VISUAL_INSPECTION_STATES = frozenset({GateState.PASS.value, GateState.FAIL.value})
+P0_VISUAL_RISK_FAMILIES = (
+    "inline",
+    "display",
+    "subscript",
+    "superscript",
+    "fraction",
+    "inequality",
+    "greek",
+    "interval",
+    "scientific_notation",
+)
+P0_ACCEPTANCE_REQUEST_ID_RE = re.compile(r"^p0-request-[0-9a-f]{32}$")
 
 
 class GatePolicyError(ContractError):
     """Raised when an evidence or P0 finalization policy is not satisfied."""
+
+
+def normalize_recorded_at(value: Any) -> str:
+    """Require a timezone-qualified ISO-8601 evidence timestamp."""
+
+    if not isinstance(value, str) or not value.strip():
+        raise GatePolicyError("native Word evidence requires recorded_at")
+    normalized = value.strip()
+    try:
+        parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise GatePolicyError("recorded_at must be ISO-8601") from error
+    if parsed.tzinfo is None:
+        raise GatePolicyError("recorded_at must include an explicit timezone")
+    return normalized
 
 
 def _canonical_json(value: Any) -> str:
@@ -252,6 +281,7 @@ def bind_native_word_evidence(
         raise GatePolicyError("native Word evidence cannot FAIL when all required observations PASS")
     if state == GateState.FAIL.value and (reason is None or not isinstance(reason, str) or not reason.strip()):
         raise GatePolicyError("FAIL native Word evidence requires an explicit reason")
+    normalized_recorded_at = normalize_recorded_at(recorded_at)
 
     native_details = {
         "result": state,
@@ -269,6 +299,7 @@ def bind_native_word_evidence(
             "candidate_sha256": candidate_sha256,
             "details": native_details,
             "environment": environment,
+            "recorded_at": normalized_recorded_at,
         },
     )
     return bind_gate_evidence(
@@ -281,7 +312,7 @@ def bind_native_word_evidence(
         tool_version=word_version,
         environment=environment,
         details=native_details,
-        recorded_at=recorded_at,
+        recorded_at=normalized_recorded_at,
         reason=reason,
     )
 
@@ -360,6 +391,27 @@ def _native_gate_errors(job: FrozenJob, artifact: Mapping[str, Any]) -> list[str
         errors.append("native Word gate evidence Word version is inconsistent")
     if details.get("validation_mode") not in NATIVE_WORD_VALIDATION_MODES:
         errors.append("native Word gate evidence has an unsupported validation mode")
+    try:
+        normalized_recorded_at = normalize_recorded_at(evidence.get("recorded_at"))
+    except GatePolicyError as error:
+        normalized_recorded_at = evidence.get("recorded_at")
+        errors.append(str(error))
+    if details.get("representative_acceptance") is not True:
+        errors.append("native Word gate evidence is not from representative P0 acceptance")
+    request_id = details.get("acceptance_request_id")
+    if not isinstance(request_id, str) or P0_ACCEPTANCE_REQUEST_ID_RE.fullmatch(request_id) is None:
+        errors.append("native Word gate evidence has no valid representative acceptance request ID")
+    visual_checks = details.get("visual_checks")
+    if not isinstance(visual_checks, Mapping) or set(visual_checks) != set(P0_VISUAL_RISK_FAMILIES):
+        errors.append("native Word gate evidence has incomplete representative visual checks")
+    else:
+        non_pass = [
+            family
+            for family in P0_VISUAL_RISK_FAMILIES
+            if visual_checks.get(family) != GateState.PASS.value
+        ]
+        if non_pass:
+            errors.append(f"native Word gate evidence has non-PASS representative visual checks: {non_pass}")
     expected_evidence_id = _stable_evidence_id(
         "native-word",
         {
@@ -368,6 +420,7 @@ def _native_gate_errors(job: FrozenJob, artifact: Mapping[str, Any]) -> list[str
             "candidate_sha256": artifact.get("content_sha256"),
             "details": dict(details),
             "environment": evidence.get("environment"),
+            "recorded_at": normalized_recorded_at,
         },
     )
     if evidence.get("evidence_id") != expected_evidence_id:
@@ -475,10 +528,12 @@ __all__ = [
     "NATIVE_WORD_VALIDATION_MODES",
     "P0_GATE_SCHEMA_VERSION",
     "P0_REQUIRED_GATES",
+    "P0_VISUAL_RISK_FAMILIES",
     "VISUAL_INSPECTION_STATES",
     "assert_p0_ready",
     "bind_native_word_evidence",
     "bind_structural_audit_evidence",
     "evaluate_p0_gate",
     "finalize_p0_artifact_set",
+    "normalize_recorded_at",
 ]

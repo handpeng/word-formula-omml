@@ -12,7 +12,6 @@ import copy
 import hashlib
 import json
 from collections.abc import Mapping
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -27,25 +26,16 @@ from word_formula_omml.contract import (
 )
 from word_formula_omml.gates import (
     NATIVE_WORD_VALIDATION_MODES,
+    P0_VISUAL_RISK_FAMILIES,
     GatePolicyError,
     bind_native_word_evidence,
     evaluate_p0_gate,
+    normalize_recorded_at,
 )
 
 
 P0_ACCEPTANCE_SCHEMA_VERSION = 1
 P0_ACCEPTANCE_GATE = "P0_REPRESENTATIVE_ACCEPTANCE"
-P0_VISUAL_RISK_FAMILIES = (
-    "inline",
-    "display",
-    "subscript",
-    "superscript",
-    "fraction",
-    "inequality",
-    "greek",
-    "interval",
-    "scientific_notation",
-)
 P0_REPRESENTATIVE_ARTIFACTS = frozenset({"redlined", "clean"})
 
 
@@ -219,16 +209,10 @@ def acceptance_observation_template(request: Mapping[str, Any]) -> dict[str, Any
 
 
 def _recorded_at(value: Any) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise AcceptanceError("native Word observation requires recorded_at")
-    normalized = value.strip()
     try:
-        parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
-    except ValueError as error:
-        raise AcceptanceError("recorded_at must be ISO-8601") from error
-    if parsed.tzinfo is None:
-        raise AcceptanceError("recorded_at must include an explicit timezone")
-    return normalized
+        return normalize_recorded_at(value)
+    except GatePolicyError as error:
+        raise AcceptanceError(str(error)) from error
 
 
 def _observations(request: Mapping[str, Any], observations: Mapping[str, Any]) -> dict[str, Any]:
