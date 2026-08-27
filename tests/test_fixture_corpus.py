@@ -80,10 +80,15 @@ class FixtureCorpusTests(unittest.TestCase):
         document = ET.fromstring(package["word/document.xml"])
         body = document.find("w:body", NS)
         self.assertIsNotNone(body)
-        display_nodes = [child for child in body if child.tag == f"{{{M}}}oMathPara"]
+        display_nodes = document.findall(".//w:p/m:oMathPara", NS)
         self.assertEqual(len(display_nodes), 1)
         self.assertEqual(display_nodes[0][0].tag, f"{{{M}}}oMath")
         self.assertEqual(len(display_nodes[0].findall(".//m:f", NS)), 1)
+
+    def test_legacy_object_is_run_content(self):
+        document = ET.fromstring(build_fixture_package()["word/document.xml"])
+        self.assertEqual(len(document.findall(".//w:r/w:object", NS)), 1)
+        self.assertEqual(len(document.findall(".//w:p/w:object", NS)), 0)
 
     def test_relationships_and_protected_parts_are_explicit(self):
         package = build_fixture_package()
