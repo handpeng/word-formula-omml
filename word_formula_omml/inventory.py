@@ -467,11 +467,15 @@ def _load_package(
 
 
 def _block_map(index: dict[int, NodeInfo]) -> dict[int, int]:
-    blocks = [
-        info
-        for info in index.values()
-        if (_namespace(info.element.tag), _local(info.element.tag)) in {(W, "p"), (M, "oMathPara")}
-    ]
+    blocks = []
+    for info in index.values():
+        kind = (_namespace(info.element.tag), _local(info.element.tag))
+        if kind == (W, "p"):
+            blocks.append(info)
+        elif kind == (M, "oMathPara") and not any(
+            _is(ancestor, W, "p") for ancestor in info.ancestors
+        ):
+            blocks.append(info)
     blocks.sort(key=lambda item: item.ordinal)
     return {id(info.element): number for number, info in enumerate(blocks, 1)}
 
@@ -827,7 +831,9 @@ def _omml_candidate(
 ) -> Candidate:
     info = index[id(node)]
     paragraph = _nearest(info, {(W, "p")})
-    block = _nearest(info, {(W, "p"), (M, "oMathPara")})
+    # Word stores display OMML inside a paragraph. Use that paragraph as the
+    # block when present; retain support for legacy body-level oMathPara.
+    block = paragraph or _nearest(info, {(M, "oMathPara")})
     source = "".join(item.text or "" for item in node.iter() if _is(item, M, "t")) or "native-omml"
     layout = _layout(paragraph, display_node=any(_is(item, M, "oMathPara") for item in info.ancestors))
     block_number = block_map.get(id(block), 0) if block is not None else 0

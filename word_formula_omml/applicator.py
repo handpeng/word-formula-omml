@@ -214,7 +214,16 @@ def _serialize_package(package: _Package) -> bytes:
 
 
 def _block_elements(root: ET.Element) -> list[ET.Element]:
-    return [node for node in root.iter() if node.tag in {_w("p"), _m("oMathPara")}]
+    parents = _parent_map(root)
+    blocks: list[ET.Element] = []
+    for node in root.iter():
+        if node.tag == _w("p"):
+            blocks.append(node)
+        elif node.tag == _m("oMathPara") and not any(
+            ancestor.tag == _w("p") for ancestor in _ancestors(node, parents)
+        ):
+            blocks.append(node)
+    return blocks
 
 
 def _parent_map(root: ET.Element) -> dict[int, ET.Element]:
@@ -709,7 +718,7 @@ def _set_word_value(parent: ET.Element, local: str, value: str) -> None:
 
 
 def _apply_math_style(node: ET.Element, style: Mapping[str, Any]) -> None:
-    """Apply occurrence style only to the new OMML control properties."""
+    """Apply occurrence style using Word's native math-run property shape."""
 
     math_style = style.get("math_style")
     style_value = {"none": "p", "bold": "b", "italic": "i"}.get(math_style)
@@ -726,11 +735,27 @@ def _apply_math_style(node: ET.Element, style: Mapping[str, Any]) -> None:
             math_style_node.set(_q(M, "val"), style_value)
 
         control_properties = _direct_child(math_properties, _m("ctrlPr"))
-        if control_properties is None:
-            control_properties = ET.SubElement(math_properties, _m("ctrlPr"))
-        word_properties = _direct_child(control_properties, _w("rPr"))
+        word_properties = _direct_child(math_run, _w("rPr"))
+        if control_properties is not None:
+            legacy_word_properties = _direct_child(control_properties, _w("rPr"))
+            if any(child.tag != _w("rPr") for child in control_properties):
+                raise ApplicationError("math ctrlPr contains unsupported children")
+            if word_properties is None:
+                word_properties = legacy_word_properties or ET.Element(_w("rPr"))
+                if legacy_word_properties is not None:
+                    control_properties.remove(legacy_word_properties)
+            elif legacy_word_properties is not None:
+                for child in list(legacy_word_properties):
+                    if _direct_child(word_properties, child.tag) is None:
+                        word_properties.append(child)
+            math_properties.remove(control_properties)
         if word_properties is None:
-            word_properties = ET.SubElement(control_properties, _w("rPr"))
+            word_properties = ET.Element(_w("rPr"))
+        if word_properties not in list(math_run):
+            math_run.insert(list(math_run).index(math_properties) + 1, word_properties)
+        elif list(math_run).index(word_properties) != list(math_run).index(math_properties) + 1:
+            math_run.remove(word_properties)
+            math_run.insert(list(math_run).index(math_properties) + 1, word_properties)
 
         fonts = _direct_child(word_properties, _w("rFonts"))
         if fonts is None:

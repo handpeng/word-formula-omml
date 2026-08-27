@@ -1,0 +1,143 @@
+{
+  "acceptance_receipt_id": "p0-receipt-19e5eade9b3c8fc3bf7625821989879f",
+  "acceptance_request_id": "p0-request-f931fa08b1dd6336666d71eb3a69c720",
+  "application_plan_sha256": "9f0e78da17060d882d2aa732f23a70c8e748d3d412b86383a2851d5e6c57ca86",
+  "artifacts": [
+    {
+      "candidate_sha256": "308066914881b3cdf10c4b405b65d9e8cbd6f2ec314819eade853dcb9cba3df4",
+      "environment": {
+        "equations": 7,
+        "pages": 2,
+        "paragraphs": 29,
+        "pdf_export_sha256": "85a0999b486f18c9bba51c3cd5ea654892d94768f87308794f3f5b0323c1a06c",
+        "platform": "Windows 11 Pro",
+        "platform_build": "10.0.26200",
+        "read_only": true,
+        "revisions": 4,
+        "validation_runner": "local Microsoft Word COM OpenNoRepairDialog probe"
+      },
+      "logical_id": "clean",
+      "notes": "Exact candidate opened read-only with no repair or recovery dialog. SHA-256 was unchanged before and after opening. Word PDF export succeeded; local-word-evidence/clean-page-1.png and clean-page-2.png were reviewed for all nine required visual families.",
+      "open_no_repair": true,
+      "recorded_at": "2026-08-27T16:16:55.1043147+08:00",
+      "validation_mode": "manual",
+      "visual_checks": {
+        "display": "PASS",
+        "fraction": "PASS",
+        "greek": "PASS",
+        "inequality": "PASS",
+        "inline": "PASS",
+        "interval": "PASS",
+        "scientific_notation": "PASS",
+        "subscript": "PASS",
+        "superscript": "PASS"
+      },
+      "word_version": "16.0.20326"
+    },
+    {
+      "candidate_sha256": "d7dc67158372bf9a72907e426ec11400d54e3e86345879eedc313e6027861d7e",
+      "environment": {
+        "equations": 7,
+        "pages": 2,
+        "paragraphs": 29,
+        "pdf_export_sha256": "53715c34f90d60f06fd5426e726ebcc44169ae597ce9ddfdc56e607d367fb2fc",
+        "platform": "Windows 11 Pro",
+        "platform_build": "10.0.26200",
+        "read_only": true,
+        "revisions": 21,
+        "validation_runner": "local Microsoft Word COM OpenNoRepairDialog probe"
+      },
+      "logical_id": "redlined",
+      "notes": "Exact candidate opened read-only with no repair or recovery dialog. SHA-256 was unchanged before and after opening. Word PDF export succeeded; local-word-evidence/redlined-page-1.png and redlined-page-2.png were reviewed for all nine required visual families.",
+      "open_no_repair": true,
+      "recorded_at": "2026-08-27T16:16:29.7636829+08:00",
+      "validation_mode": "manual",
+      "visual_checks": {
+        "display": "PASS",
+        "fraction": "PASS",
+        "greek": "PASS",
+        "inequality": "PASS",
+        "inline": "PASS",
+        "interval": "PASS",
+        "scientific_notation": "PASS",
+        "subscript": "PASS",
+        "superscript": "PASS"
+      },
+      "word_version": "16.0.20326"
+    }
+  ],
+  "coverage": {
+    "display": {
+      "occurrence_ids": [
+        "display-omml"
+      ],
+      "rationale": "Preserved native display OMML exercises Word display layout without expanding the P0 applicator beyond its inline fast path."
+    },
+    "fraction": {
+      "occurrence_ids": [
+        "raw-latex",
+        "display-omml"
+      ],
+      "rationale": "The generated inline fraction and preserved native display fraction exercise structural fraction rendering."
+    },
+    "greek": {
+      "occurrence_ids": [
+        "unicode-operators"
+      ],
+      "rationale": "The Unicode-to-approved-math occurrence contains alpha, beta, and gamma in the native candidate."
+    },
+    "inequality": {
+      "occurrence_ids": [
+        "plain-operators",
+        "unicode-operators"
+      ],
+      "rationale": "The representative set covers both normalized >= and Unicode <= inequality forms."
+    },
+    "inline": {
+      "occurrence_ids": [
+        "raw-latex",
+        "plain-operators",
+        "unicode-operators",
+        "interval"
+      ],
+      "rationale": "Multiple automatically applied inline equations exercise baseline, spacing, and contextual style behavior."
+    },
+    "interval": {
+      "occurrence_ids": [
+        "interval"
+      ],
+      "rationale": "The interval occurrence preserves open-left and closed-right delimiters."
+    },
+    "scientific_notation": {
+      "occurrence_ids": [
+        "plain-operators"
+      ],
+      "rationale": "The normalized operator occurrence contains the 10^-3 scientific-notation exponent."
+    },
+    "subscript": {
+      "occurrence_ids": [
+        "raw-latex",
+        "plain-scripts"
+      ],
+      "rationale": "The representative equations include a native subscript on x."
+    },
+    "superscript": {
+      "occurrence_ids": [
+        "raw-latex",
+        "plain-scripts"
+      ],
+      "rationale": "The representative equations include native exponent grouping and superscript layout."
+    }
+  },
+  "gate": "P0_REPRESENTATIVE_ACCEPTANCE",
+  "job_id": "job-3a1e995b90d4b59e48286c317c5e6dcf",
+  "manifest_id": "manifest-26a30bf03f0cb557e83d705e5bee066c",
+  "manifest_sha256": "26a30bf03f0cb557e83d705e5bee066c1e58b88aeb0a80f4027a448c9f7ef0db",
+  "p0_gate": {
+    "delivery_status": "COMPLETE",
+    "state": "PASS"
+  },
+  "schema_version": 1,
+  "source_sha256": "ff50002b00a5cd0edfdc290b1bceff59d1706ca44f2bb67b3641174e36c91a3f",
+  "state": "PASS"
+}

@@ -187,7 +187,24 @@ def _story_roots(
 
 
 def _blocks(root: ET.Element) -> list[ET.Element]:
-    return [node for node in root.iter() if node.tag in {QW("p"), QM("oMathPara")}]
+    parents = _parent_map(root)
+    blocks: list[ET.Element] = []
+    for node in root.iter():
+        if node.tag == QW("p"):
+            blocks.append(node)
+            continue
+        if node.tag != QM("oMathPara"):
+            continue
+        current = parents.get(id(node))
+        nested = False
+        while current is not None:
+            if current.tag == QW("p"):
+                nested = True
+                break
+            current = parents.get(id(current))
+        if not nested:
+            blocks.append(node)
+    return blocks
 
 
 def _visible_paragraph_text(paragraph: ET.Element, replacements: Mapping[int, str] | None = None) -> str:
@@ -1477,8 +1494,10 @@ def _audit_generated_style(node: ET.Element, expected: Mapping[str, Any]) -> tup
     run_results: list[dict[str, Any]] = []
     for index, run in enumerate(runs, 1):
         math_properties = _direct_child(run, QM("rPr"))
-        control_properties = _direct_child(math_properties, QM("ctrlPr"))
-        word_properties = _direct_child(control_properties, QW("rPr"))
+        legacy_control_properties = _direct_child(math_properties, QM("ctrlPr"))
+        if legacy_control_properties is not None:
+            errors.append(f"math run {index} uses non-native m:ctrlPr placement")
+        word_properties = _direct_child(run, QW("rPr"))
         fonts = _direct_child(word_properties, QW("rFonts"))
         if fonts is None or fonts.get(QW("ascii")) != "Cambria Math" or fonts.get(QW("hAnsi")) != "Cambria Math":
             errors.append(f"math run {index} lacks explicit Cambria Math")

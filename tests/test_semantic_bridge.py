@@ -184,6 +184,13 @@ class SemanticBridgeTests(unittest.TestCase):
             parse_omml_semantics(omath(math_run("Total", literal=True))),
         )
 
+    def test_word_direct_run_properties_are_ignored_for_semantics(self):
+        run = math_run("x")
+        word_properties = ET.Element(q(W, "rPr"))
+        ET.SubElement(word_properties, q(W, "rFonts"), {q(W, "ascii"): "Cambria Math"})
+        run.insert(0, word_properties)
+        self.assertEqual("x", parse_omml_semantics(omath(run)))
+
     def test_pandoc_raw_run_numeric_intervals_use_canonical_interval_ir(self):
         expected = canonicalize_formula("(0,1]")
         self.assertEqual(

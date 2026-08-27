@@ -358,7 +358,9 @@ def document_xml() -> bytes:
     append(sdt, content)
     append(body, sdt)
     append(body, paragraph(native_omath("x")))
-    append(body, native_omath(r"\frac{a}{b}", display=True))
+    # A display equation is block content inside a Word paragraph; placing
+    # m:oMathPara directly under w:body makes Word reject the package.
+    append(body, paragraph(native_omath(r"\frac{a}{b}", display=True)))
     legacy_paragraph = paragraph(run("Embedded legacy equation object"))
     object_node = element(W, "object")
     shape = element(V, "shape", id="_x0000_i1025", type="#_x0000_t75")
@@ -378,7 +380,11 @@ def document_xml() -> bytes:
             },
         ),
     )
-    legacy_paragraph.append(object_node)
+    # w:object is run content in WordprocessingML; keeping it directly under
+    # w:p makes the package structurally invalid to Microsoft Word.
+    legacy_object_run = element(W, "r")
+    append(legacy_object_run, object_node)
+    legacy_paragraph.append(legacy_object_run)
     append(body, legacy_paragraph)
     append(body, text_paragraph("Semantic trap A: x_i^2"))
     append(body, text_paragraph(r"Semantic trap B: x_{i^2}"))

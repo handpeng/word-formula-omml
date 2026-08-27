@@ -357,6 +357,10 @@ def _run_text_nodes(node: ET.Element) -> list[ET.Element]:
     text_nodes: list[ET.Element] = []
     for child in node:
         namespace, local = _tag(child)
+        if namespace == W and local == "rPr":
+            # Word stores direct formatting for native math runs as a
+            # sibling w:rPr, separate from OMML's m:rPr math properties.
+            continue
         if namespace != M:
             raise UnsupportedOMML(f"foreign_math_run_child:{local}")
         if local == "rPr":

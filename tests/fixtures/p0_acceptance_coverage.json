@@ -1,0 +1,38 @@
+{
+  "display": {
+    "occurrence_ids": ["display-omml"],
+    "rationale": "Preserved native display OMML exercises Word display layout without expanding the P0 applicator beyond its inline fast path."
+  },
+  "fraction": {
+    "occurrence_ids": ["raw-latex", "display-omml"],
+    "rationale": "The generated inline fraction and preserved native display fraction exercise structural fraction rendering."
+  },
+  "greek": {
+    "occurrence_ids": ["unicode-operators"],
+    "rationale": "The Unicode-to-approved-math occurrence contains alpha, beta, and gamma in the native candidate."
+  },
+  "inequality": {
+    "occurrence_ids": ["plain-operators", "unicode-operators"],
+    "rationale": "The representative set covers both normalized >= and Unicode <= inequality forms."
+  },
+  "inline": {
+    "occurrence_ids": ["raw-latex", "plain-operators", "unicode-operators", "interval"],
+    "rationale": "Multiple automatically applied inline equations exercise baseline, spacing, and contextual style behavior."
+  },
+  "interval": {
+    "occurrence_ids": ["interval"],
+    "rationale": "The interval occurrence preserves open-left and closed-right delimiters."
+  },
+  "scientific_notation": {
+    "occurrence_ids": ["plain-operators"],
+    "rationale": "The normalized operator occurrence contains the 10^-3 scientific-notation exponent."
+  },
+  "subscript": {
+    "occurrence_ids": ["raw-latex", "plain-scripts"],
+    "rationale": "The representative equations include a native subscript on x."
+  },
+  "superscript": {
+    "occurrence_ids": ["raw-latex", "plain-scripts"],
+    "rationale": "The representative equations include native exponent grouping and superscript layout."
+  }
+}
