@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import struct
 import zipfile
 from pathlib import Path
 from typing import Iterable
@@ -47,6 +48,37 @@ for prefix, uri in NS.items():
 EXPECTATIONS_PATH = Path(__file__).with_name("expectations.json")
 FIXTURE_NAME = "adversarial-v1"
 FIXED_DATE = "2026-01-01T00:00:00Z"
+
+# This is a small, deterministic Microsoft Equation 3.0 compound file.  The
+# object is intentionally preserved by W1; it is not a legacy-equation parser
+# fixture.  Keeping the payload here makes the package self-contained while
+# retaining the real CFB/OLE structure that Word expects for Equation.3.
+_CFB_MAGIC = bytes.fromhex("d0cf11e0a1b11ae1")
+_CFB_SECTOR_SIZE = 512
+_CFB_MINI_SECTOR_SIZE = 64
+_CFB_MINI_STREAM_CUTOFF = 4096
+_CFB_FREESECT = 0xFFFFFFFF
+_CFB_ENDOFCHAIN = 0xFFFFFFFE
+_CFB_FATSECT = 0xFFFFFFFD
+_CFB_RED = 0
+_CFB_BLACK = 1
+_EQUATION_3_CLSID = bytes.fromhex("02ce020000000000c000000000000046")
+_EQUATION_3_COMPOBJ = bytes.fromhex(
+    "0100feff030a0000ffffffff02ce020000000000c000000000000046"
+    "170000004d6963726f736f6674204571756174696f6e20332e3000"
+    "0c0000004453204571756174696f6e00"
+    "0b0000004571756174696f6e2e3300"
+    "f439b271000000000000000000000000"
+)
+_EQUATION_3_OLE = bytes.fromhex("0100000208000000000000000000000000000000")
+_EQUATION_3_OBJINFO = bytes.fromhex("000003000400")
+_EQUATION_3_NATIVE = bytes.fromhex(
+    "1c0000000200f0c2610000000000000068d02b00246b290000000000"
+    "030101030a0a010284c303030f01000b01080200417269616c00027e740000"
+    "11000a02863d00030d0000010284c303030f02000b01027e52000001028832"
+    "0000000a02862b000284c303030f02000b01027e5000000102883200000000"
+    "11000000"
+)
 
 
 def qn(namespace: str, local: str) -> str:
@@ -483,6 +515,143 @@ def png_bytes() -> bytes:
     )
 
 
+def _pad_binary(data: bytes, alignment: int) -> bytes:
+    return data + b"\x00" * (-len(data) % alignment)
+
+
+def _cfb_directory_entry(
+    name: str,
+    entry_type: int,
+    color: int,
+    left: int,
+    right: int,
+    child: int,
+    start_sector: int,
+    size: int,
+    clsid: bytes = bytes(16),
+) -> bytes:
+    name_bytes = name.encode("utf-16-le") + b"\x00\x00"
+    if len(name_bytes) > 64:
+        raise ValueError(f"CFB directory name is too long: {name!r}")
+    entry = bytearray(128)
+    entry[: len(name_bytes)] = name_bytes
+    struct.pack_into("<HBBIII", entry, 64, len(name_bytes), entry_type, color, left, right, child)
+    entry[80:96] = clsid
+    struct.pack_into("<II", entry, 116, start_sector, size)
+    return bytes(entry)
+
+
+def _cfb_empty_directory_entry() -> bytes:
+    entry = bytearray(128)
+    struct.pack_into(
+        "<HBBIII",
+        entry,
+        64,
+        0,
+        0,
+        _CFB_RED,
+        _CFB_FREESECT,
+        _CFB_FREESECT,
+        _CFB_FREESECT,
+    )
+    return bytes(entry)
+
+
+def _cfb_chain(table: list[int], start: int, count: int) -> None:
+    for offset in range(count):
+        table[start + offset] = (
+            start + offset + 1 if offset + 1 < count else _CFB_ENDOFCHAIN
+        )
+
+
+def equation_3_ole_bytes() -> bytes:
+    """Build the deterministic CFB payload used by the legacy Equation.3 fixture."""
+
+    streams = (
+        ("\x01Ole", _EQUATION_3_OLE),
+        ("\x01CompObj", _EQUATION_3_COMPOBJ),
+        ("\x03ObjInfo", _EQUATION_3_OBJINFO),
+        ("Equation Native", _EQUATION_3_NATIVE),
+    )
+    mini_fat = [_CFB_FREESECT] * (_CFB_SECTOR_SIZE // 4)
+    mini_stream_parts: list[bytes] = []
+    mini_starts: dict[str, int] = {}
+    mini_offset = 0
+    for name, data in streams:
+        slots = (len(data) + _CFB_MINI_SECTOR_SIZE - 1) // _CFB_MINI_SECTOR_SIZE
+        mini_starts[name] = mini_offset
+        _cfb_chain(mini_fat, mini_offset, slots)
+        mini_stream_parts.append(_pad_binary(data, _CFB_MINI_SECTOR_SIZE))
+        mini_offset += slots
+    mini_stream = b"".join(mini_stream_parts)
+
+    # The five directory entries occupy two regular sectors.  The remaining
+    # regular sectors are FAT, MiniFAT, and the mini-stream container.
+    fat = [_CFB_FREESECT] * (_CFB_SECTOR_SIZE // 4)
+    fat[0] = _CFB_FATSECT
+    fat[1] = _CFB_ENDOFCHAIN
+    fat[2] = 3
+    fat[3] = _CFB_ENDOFCHAIN
+    fat[4] = _CFB_ENDOFCHAIN
+
+    header = bytearray(_CFB_SECTOR_SIZE)
+    header[:8] = _CFB_MAGIC
+    struct.pack_into("<H", header, 24, 0x003E)  # minor version
+    struct.pack_into("<H", header, 26, 3)  # CFB version 3, 512-byte sectors
+    struct.pack_into("<H", header, 28, 0xFFFE)  # little endian
+    struct.pack_into("<H", header, 30, 9)  # sector size: 2**9
+    struct.pack_into("<H", header, 32, 6)  # mini-sector size: 2**6
+    struct.pack_into("<I", header, 44, 1)  # number of FAT sectors
+    struct.pack_into("<I", header, 48, 2)  # first directory sector
+    struct.pack_into("<I", header, 56, _CFB_MINI_STREAM_CUTOFF)
+    struct.pack_into("<I", header, 60, 1)  # first MiniFAT sector
+    struct.pack_into("<I", header, 64, 1)  # number of MiniFAT sectors
+    struct.pack_into("<I", header, 68, _CFB_ENDOFCHAIN)  # no DIFAT chain
+    for index, sector in enumerate((0,) + (_CFB_FREESECT,) * 108):
+        struct.pack_into("<I", header, 76 + index * 4, sector)
+
+    root = _cfb_directory_entry(
+        "Root Entry",
+        5,
+        _CFB_BLACK,
+        _CFB_FREESECT,
+        _CFB_FREESECT,
+        1,
+        4,
+        len(mini_stream),
+        clsid=_EQUATION_3_CLSID,
+    )
+    directory = root
+    directory += _cfb_directory_entry(
+        "\x01Ole", 2, _CFB_BLACK, 2, 3, _CFB_FREESECT,
+        mini_starts["\x01Ole"], len(_EQUATION_3_OLE),
+    )
+    directory += _cfb_directory_entry(
+        "\x01CompObj", 2, _CFB_BLACK, _CFB_FREESECT, _CFB_FREESECT, _CFB_FREESECT,
+        mini_starts["\x01CompObj"], len(_EQUATION_3_COMPOBJ),
+    )
+    directory += _cfb_directory_entry(
+        "\x03ObjInfo", 2, _CFB_BLACK, _CFB_FREESECT, 4, _CFB_FREESECT,
+        mini_starts["\x03ObjInfo"], len(_EQUATION_3_OBJINFO),
+    )
+    directory += _cfb_directory_entry(
+        "Equation Native", 2, _CFB_RED, _CFB_FREESECT, _CFB_FREESECT, _CFB_FREESECT,
+        mini_starts["Equation Native"], len(_EQUATION_3_NATIVE),
+    )
+    directory_padding = (-len(directory)) % _CFB_SECTOR_SIZE
+    if directory_padding % 128:
+        raise ValueError("CFB directory padding must contain whole entries")
+    directory += _cfb_empty_directory_entry() * (directory_padding // 128)
+
+    return (
+        bytes(header)
+        + struct.pack("<128I", *fat)
+        + struct.pack("<128I", *mini_fat)
+        + directory
+        + _pad_binary(mini_stream, _CFB_SECTOR_SIZE)
+    )
+
+
 def build_fixture_package() -> dict[str, bytes]:
     """Return package parts in sorted-name-independent form."""
 
@@ -495,7 +664,7 @@ def build_fixture_package() -> dict[str, bytes]:
         "word/_rels/document.xml.rels": document_rels(),
         "word/comments.xml": story_xml("comments", "Comment formula c_i"),
         "word/document.xml": document_xml(),
-        "word/embeddings/oleObject1.bin": b"synthetic-legacy-equation-object-v1\n",
+        "word/embeddings/oleObject1.bin": equation_3_ole_bytes(),
         "word/endnotes.xml": story_xml("endnotes", "Endnote formula e_i"),
         "word/footer1.xml": story_xml("ftr", "Footer formula f_i"),
         "word/footnotes.xml": story_xml("footnotes", "Footnote formula n_i"),
